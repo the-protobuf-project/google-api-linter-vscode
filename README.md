@@ -1,20 +1,5 @@
 # Google API Linter for VS Code
 
-<!-- markdownlint-disable MD041 -->
-<!-- markdownlint-disable MD033 MD013 -->
-
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/5390ac99-9f4f-45ee-a0d1-cdc47b0b253a" alt="GAPI Logo" width="240" />
-</p>
-
-<p align="center">
-  <strong>Google API Linter for VS Code</strong><br>
-  Real-time linting, diagnostics, and inline guidance for Protocol Buffers<br>
-  based on the <a href="https://cloud.google.com/apis/design">Google API Design Guidelines</a>
-</p>
-
-<!-- markdownlint-enable MD033 MD013 -->
-
 ## Features
 
 ### Linting & diagnostics
@@ -512,7 +497,3 @@ This project is licensed under the Apache License 2.0. See [LICENSE.md](LICENSE.
 
 - **Issues**: [GitHub Issues](https://github.com/the-protobuf-project/google-api-linter-vscode/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/the-protobuf-project/google-api-linter-vscode/discussions)
-
----
-
-**The Protobuf Project** | [GitHub](https://github.com/the-protobuf-project) | [Website](https://the-protobuf-project.com)
