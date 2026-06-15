@@ -27,7 +27,7 @@ export async function run(): Promise<void> {
 	// 2. Open a .proto file and get document symbols (outline)
 	const protoPath = path.join(
 		workspaceRoot,
-		"machanirobotics",
+		"the-protobuf-project",
 		"service",
 		"service.proto",
 	);

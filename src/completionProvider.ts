@@ -267,7 +267,7 @@ export class ProtoCompletionProvider implements vscode.CompletionItemProvider {
 			insertText: '(google.api.resource) = { type: "$1", pattern: "$2" };',
 			insertTextFormat: 2,
 		},
-		// MCP (grpc-mcp-gateway) options – https://github.com/machanirobotics/grpc-mcp-gateway
+		// MCP (grpc-mcp-gateway) options – https://github.com/the-protobuf-project/grpc-mcp-gateway
 		{
 			label: "mcp.protobuf.service",
 			kind: vscode.CompletionItemKind.Property,

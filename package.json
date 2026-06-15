@@ -3,11 +3,11 @@
 	"displayName": "Google API Linter",
 	"description": "Google API Linter for VS Code - Production Grade API Design",
 	"version": "1.3.0",
-	"publisher": "machanirobotics",
+	"publisher": "the-protobuf-project",
 	"icon": "picon.png",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/machanirobotics/google-api-linter-vscode"
+		"url": "https://github.com/the-protobuf-project/google-api-linter-vscode"
 	},
 	"packageManager": "bun@1.3.0",
 	"engines": {
@@ -153,10 +153,10 @@
 		},
 		"configurationDefaults": {
 			"[proto3]": {
-				"editor.defaultFormatter": "machanirobotics.google-api-linter"
+				"editor.defaultFormatter": "the-protobuf-project.google-api-linter"
 			},
 			"[protobuf]": {
-				"editor.defaultFormatter": "machanirobotics.google-api-linter"
+				"editor.defaultFormatter": "the-protobuf-project.google-api-linter"
 			}
 		},
 		"viewsContainers": {
