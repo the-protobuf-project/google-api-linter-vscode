@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
 const FALLBACK_ISSUES_NEW =
-	"https://github.com/machanirobotics/google-api-linter-vscode/issues/new";
+	"https://github.com/the-protobuf-project/google-api-linter-vscode/issues/new";
 
 function githubIssuesNewUrl(repoUrl: string): string | null {
 	try {

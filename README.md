@@ -41,7 +41,7 @@
 - **Automatic Binary Management**: Downloads and updates api-linter binary automatically
 - **Automatic googleapis Integration**: Downloads googleapis protos on first use - no configuration needed
 - **Smart Proto Path Detection**: Uses `workspace.protobuf.yaml`, **buf.yaml** (modules + deps), and settings for proto paths
-- **buf.yaml support**: When `buf.yaml` is present, the extension runs `buf mod download` and `buf export` so linting resolves all **deps** (e.g. `buf.build/googleapis/googleapis`, `buf.build/machanirobotics/grpc-mcp-gateway`) and local **modules**; no manual proto paths needed for Buf dependencies
+- **buf.yaml support**: When `buf.yaml` is present, the extension runs `buf mod download` and `buf export` so linting resolves all **deps** (e.g. `buf.build/googleapis/googleapis`, `buf.build/the-protobuf-project/grpc-mcp-gateway`) and local **modules**; no manual proto paths needed for Buf dependencies
 - **Protobuf folder as root**: If your protos live under a folder named `protobuf/`, that directory is used as the import root so `import "store/info/v1/category.proto"` resolves to `protobuf/store/info/v1/category.proto`; linting works from any subfolder
 - **.api-linter.yaml auto-discovery**: If you don’t set `gapi.configPath`, the extension finds `.api-linter.yaml` by walking up from the current file to the workspace root, so the config is used even when editing files in subfolders
 - **Workspace Linting**: Lint all proto files in your workspace with a single command
@@ -352,7 +352,7 @@ In **multi-root workspaces**, each folder can have its own `workspace.protobuf.y
 
 If your project uses [Buf](https://buf.build/) with a `buf.yaml` at the workspace root (or next to your protos), the extension will:
 
-- Read **modules** (e.g. `path: protobuf`, `name: buf.build/machanirobotics/protoverse`) and **deps** (e.g. `buf.build/googleapis/googleapis`, `buf.build/machanirobotics/grpc-mcp-gateway`)
+- Read **modules** (e.g. `path: protobuf`, `name: buf.build/the-protobuf-project/protoverse`) and **deps** (e.g. `buf.build/googleapis/googleapis`, `buf.build/the-protobuf-project/grpc-mcp-gateway`)
 - Run `buf mod download` and `buf export` so the api-linter can resolve all imports when linting
 - Use the exported tree and local module paths as proto paths (cached for 5 minutes)
 
@@ -422,7 +422,7 @@ If linting is slow or causes lag:
 
 ```bash
 # Clone repository
-git clone https://github.com/machanirobotics/google-api-linter-vscode.git
+git clone https://github.com/the-protobuf-project/google-api-linter-vscode.git
 cd google-api-linter-vscode
 
 # Install dependencies
@@ -510,9 +510,9 @@ This project is licensed under the Apache License 2.0. See [LICENSE.md](LICENSE.
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/machanirobotics/google-api-linter-vscode/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/machanirobotics/google-api-linter-vscode/discussions)
+- **Issues**: [GitHub Issues](https://github.com/the-protobuf-project/google-api-linter-vscode/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/the-protobuf-project/google-api-linter-vscode/discussions)
 
 ---
 
-**Machani Robotics** | [GitHub](https://github.com/machanirobotics) | [Website](https://machanirobotics.com)
+**The Protobuf Project** | [GitHub](https://github.com/the-protobuf-project) | [Website](https://the-protobuf-project.com)

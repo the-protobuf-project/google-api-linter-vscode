@@ -25,7 +25,7 @@ Use this to try the extension in a real VS Code window with the smoke-test proto
 4. A **new VS Code window** opens with the `smoke_test/protobuf` folder loaded. The extension activates because that folder contains `workspace.protobuf.yaml`.
 
 5. **Manually verify**:
-   - Open `machanirobotics/service/service.proto` or `message.proto`.
+   - Open `protobuf/service/service.proto` or `message.proto`.
    - **Linting**: Save the file and check the **Problems** panel and **Output** → "Google API Linter".
    - **Outline**: Open **Outline** view; you should see messages, services, enums, rpcs.
    - **Completions**: Type `message ` or `rpc ` and confirm suggestions with type hints.
@@ -86,7 +86,7 @@ smoke_test/protobuf/
 ├── workspace.protobuf.yaml   # Required for extension activation
 ├── buf.yaml
 ├── buf.gen.yaml
-└── machanirobotics/
+└── protobuf/
     └── service/
         ├── message.proto
         └── service.proto
