@@ -70,7 +70,7 @@ function createClientOptions(): LanguageClientOptions {
 		synchronize: {
 			fileEvents: vscode.workspace.createFileSystemWatcher(PROTO_FILE_PATTERN),
 		},
-		outputChannel: outputChannel,
+		outputChannel: outputChannel as unknown as vscode.LogOutputChannel,
 		revealOutputChannelOn: 4, // RevealOutputChannelOn.Never - only show when user opens it
 	};
 }

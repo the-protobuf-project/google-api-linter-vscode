@@ -294,7 +294,7 @@
 	},
 	"dependencies": {
 		"fast-glob": "^3.3.3",
-		"vscode-languageclient": "^9.0.1",
+		"vscode-languageclient": "^10.0.0",
 		"yaml": "^2.8.2"
 	},
 	"devDependencies": {
