@@ -91,10 +91,10 @@ Interfaces are defined up front so every track builds against them concurrently 
 
 - [x] **0.7** Neutralise destructive Rename Symbol — scoped to current file, package-aware matching.
       *Done before this branch; 155 edits across 154 files → 1 edit in 1 file.*
-- [ ] **0.1** (A) Remove `runBufSyntaxCheck` from the per-file lint path. Run `buf build` at most once
-      per workspace, debounced, fan diagnostics out by file.
+- [x] **0.1** (A) Remove `runBufSyntaxCheck` from the per-file lint path. Run `buf build` at most once
+      per workspace, debounced, fan diagnostics out by file. *Done.*
 - [ ] **0.2** (B) `formatAllProtos` → one `buf format -w` per module, not per file.
-- [ ] **0.3** (A) Batch `lintWorkspace` into one api-linter process per module, chunked under ARG_MAX.
+- [x] **0.3** (A) Batch `lintWorkspace` into one api-linter process per module, chunked under ARG_MAX. *Done.*
 - [ ] **0.4** (C) `spawnSync` → async `spawn`. Removes the event-loop freeze.
 - [ ] **0.5** (E) Proto view: no scan on activation, lazy per-section, file-count ceiling.
 - [x] **0.6** (H) Delete `server.ts` + `extension-lsp.ts`. *Done — both were unreachable. The three
@@ -139,6 +139,29 @@ Interfaces are defined up front so every track builds against them concurrently 
 
 ---
 
+## Integration notes
+
+Collected from each track as it lands. The integrator owns `src/extension.ts` and `package.json`.
+
+### From Track A (lint pipeline) — landed
+
+1. **Dispose the provider.** `ApiLinterProvider` now owns a second `DiagnosticCollection`
+   (`google-api-linter-syntax`), a debounce timer, and possibly an in-flight `buf` child process.
+   Push it into `context.subscriptions` or it leaks on deactivate.
+2. **Trigger the syntax check.** Per-file lint no longer runs `buf` at all, so syntax errors will not
+   appear until `linterProvider.scheduleWorkspaceSyntaxCheck()` is called. Wire it into the existing
+   `onDidSaveTextDocument` handler for `.proto` files and once after activation. It is debounced and
+   self-coalescing, so calling it on every save is safe.
+3. No constructor change; `getBinaryManager` / `lintDocument` / `lintUri` / `lintWorkspace` keep their
+   signatures, so `commands.ts` needs nothing.
+
+**Why a second collection:** a shared one would have the workspace `buf build` pass and the per-file
+api-linter pass overwrite each other. Diagnostic `source` strings are unchanged
+(`google-api-linter`, `google-api-linter (syntax)`), so `statusBar.ts`, `protoView.ts` and
+`hoverProvider.ts` keep filtering correctly.
+
+---
+
 ## Verification
 
 Run from the extension directory:
@@ -163,3 +186,7 @@ checkout is compiled into the FHIR module.
 - 2026-09-13 — Track H done: dead LSP scaffold deleted. Budget settings added to `package.json`
   (`gapi.index.maxMemoryMB`, `gapi.index.maxFiles`, `gapi.index.enabled`, `gapi.protoView.maxFiles`).
 - 2026-09-13 — Tracks A–G dispatched concurrently against the contract.
+- 2026-09-13 — Session quota exhausted mid-run; 5 of 7 agents died. Surviving partial work from
+  Tracks A and E committed as WIP rather than discarded. Re-dispatched in a wave of 4, then 1,
+  with tighter scopes so each lands sooner and can be committed.
+- 2026-09-13 — Track A landed: per-file `buf build` removed, workspace lint batched.
