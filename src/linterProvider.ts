@@ -752,7 +752,7 @@ function parseBatchProblems(
 	}
 
 	for (const result of results) {
-		if (!result || !result.problems || result.problems.length === 0) {
+		if (!result?.problems || result.problems.length === 0) {
 			continue;
 		}
 		const reported = result.file_path ?? "";

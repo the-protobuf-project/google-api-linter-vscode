@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { registerAnnotationSupport } from "./annotations/support";
 import { ProtoCodeActionProvider } from "./codeActionProvider";
 import {
 	createConfigCommand,
@@ -12,7 +13,6 @@ import {
 	createRestartCommand,
 	createUpdateGoogleapisCommitCommand,
 } from "./commands";
-import { registerAnnotationSupport } from "./annotations/support";
 import { ProtoCompletionProvider } from "./completionProvider";
 import { registerConfigValidation } from "./configValidator";
 import {

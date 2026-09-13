@@ -242,7 +242,7 @@ export const createFormatFileFromTreeCommand = () => {
 				"uri" in element
 			) {
 				const uri = (element as { uri: vscode.Uri }).uri;
-				if (!uri || !uri.fsPath.endsWith(".proto")) {
+				if (!uri?.fsPath.endsWith(".proto")) {
 					return;
 				}
 				const filePath = uri.fsPath;
