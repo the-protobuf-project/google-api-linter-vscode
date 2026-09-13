@@ -121,19 +121,16 @@ function getProtobufRootProtoPath(filePath: string): string | null {
 }
 
 /**
- * Builds command-line arguments for the api-linter binary.
- * @param filePath - Path to the proto file to lint
- * @param options - Linter configuration options
- * @returns Object containing args array, working directory, and file name
+ * Builds every argument an api-linter invocation needs except the file names:
+ * config, proto paths, rule toggles, output format. All of these are derived from
+ * the file's directory, so any two files sharing a directory share this argv.
  */
-export const buildLinterArgs = (
+const buildSharedLinterArgs = (
 	filePath: string,
 	options: LinterOptions,
 ): {
 	args: string[];
 	workingDir: string;
-	fileName: string;
-	/** Temp config from resolveConfigToArrayFormat — unlink after spawn completes */
 	tempConfigPath: string | null;
 } => {
 	const args: string[] = [];
@@ -152,7 +149,6 @@ export const buildLinterArgs = (
 		? filePath
 		: path.resolve(filePath);
 	const workingDir = path.dirname(absolutePath);
-	const fileName = path.basename(absolutePath);
 
 	args.push("--proto-path", workingDir);
 
@@ -208,10 +204,153 @@ export const buildLinterArgs = (
 	}
 
 	args.push("--output-format", "json");
-	args.push(fileName);
 
+	return { args, workingDir, tempConfigPath };
+};
+
+/**
+ * Builds command-line arguments for the api-linter binary.
+ * @param filePath - Path to the proto file to lint
+ * @param options - Linter configuration options
+ * @returns Object containing args array, working directory, and file name
+ */
+export const buildLinterArgs = (
+	filePath: string,
+	options: LinterOptions,
+): {
+	args: string[];
+	workingDir: string;
+	fileName: string;
+	/** Temp config from resolveConfigToArrayFormat — unlink after spawn completes */
+	tempConfigPath: string | null;
+} => {
+	const { args, workingDir, tempConfigPath } = buildSharedLinterArgs(
+		filePath,
+		options,
+	);
+	const fileName = path.basename(path.resolve(filePath));
+	args.push(fileName);
 	return { args, workingDir, fileName, tempConfigPath };
 };
+
+/**
+ * Largest number of file arguments in one api-linter invocation.
+ * Paired with MAX_BATCH_ARGV_CHARS to stay well clear of ARG_MAX.
+ */
+export const MAX_BATCH_FILES = 400;
+
+/** Largest combined argv length, in characters, for one api-linter invocation. */
+export const MAX_BATCH_ARGV_CHARS = 100_000;
+
+/** One api-linter invocation covering many files that share a cwd and proto paths. */
+export interface LinterBatch {
+	/** Working directory for the spawned process; every fileName is relative to it. */
+	workingDir: string;
+	/** Shared flags: --config, --proto-path, rule toggles, --output-format. */
+	baseArgs: string[];
+	/** File arguments, in argv order. */
+	fileNames: string[];
+	/** Absolute path of each entry in fileNames, same order. */
+	filePaths: string[];
+}
+
+/** A complete set of batches plus the temp files that outlive individual batches. */
+export interface LinterBatchPlan {
+	batches: LinterBatch[];
+	/** Shared across batches of the same directory — unlink only once all have run. */
+	tempConfigPaths: string[];
+}
+
+/**
+ * Groups proto files into as few api-linter invocations as possible.
+ *
+ * api-linter resolves each file argument against its --proto-path entries and cwd,
+ * and both of those are derived from the file's own directory, so a directory is the
+ * largest unit whose files can share one argv without changing how any path resolves.
+ *
+ * @param filePaths - Proto files to lint; relative paths are resolved against cwd
+ * @param options - Linter configuration options
+ * @returns Batches to run, and temp configs to dispose once they all have
+ */
+export function buildLinterBatches(
+	filePaths: readonly string[],
+	options: LinterOptions,
+): LinterBatchPlan {
+	const byWorkingDir = new Map<string, string[]>();
+	for (const filePath of filePaths) {
+		const absolute = path.resolve(filePath);
+		const dir = path.dirname(absolute);
+		const group = byWorkingDir.get(dir);
+		if (group) {
+			group.push(absolute);
+		} else {
+			byWorkingDir.set(dir, [absolute]);
+		}
+	}
+
+	const batches: LinterBatch[] = [];
+	const tempConfigPaths: string[] = [];
+
+	for (const group of byWorkingDir.values()) {
+		const shared = buildSharedLinterArgs(group[0], options);
+		if (shared.tempConfigPath) {
+			tempConfigPaths.push(shared.tempConfigPath);
+		}
+		// +1 per argument for the separator the kernel counts alongside each argv entry.
+		const baseChars = shared.args.reduce((sum, arg) => sum + arg.length + 1, 0);
+
+		let fileNames: string[] = [];
+		let batchFilePaths: string[] = [];
+		let chars = baseChars;
+
+		const flush = () => {
+			if (fileNames.length === 0) {
+				return;
+			}
+			batches.push({
+				workingDir: shared.workingDir,
+				baseArgs: shared.args,
+				fileNames,
+				filePaths: batchFilePaths,
+			});
+			fileNames = [];
+			batchFilePaths = [];
+			chars = baseChars;
+		};
+
+		for (const absolute of group) {
+			const fileName = path.basename(absolute);
+			const cost = fileName.length + 1;
+			if (
+				fileNames.length > 0 &&
+				(fileNames.length >= MAX_BATCH_FILES ||
+					chars + cost > MAX_BATCH_ARGV_CHARS)
+			) {
+				flush();
+			}
+			fileNames.push(fileName);
+			batchFilePaths.push(absolute);
+			chars += cost;
+		}
+		flush();
+	}
+
+	return { batches, tempConfigPaths };
+}
+
+/**
+ * Deletes the temp configs a batch plan created. Call once every batch has run.
+ * @param plan - The plan returned by buildLinterBatches
+ */
+export function disposeLinterBatchPlan(plan: LinterBatchPlan): void {
+	for (const tempConfigPath of plan.tempConfigPaths) {
+		try {
+			fs.unlinkSync(tempConfigPath);
+		} catch {
+			// already gone
+		}
+	}
+}
 
 /**
  * Parses JSON output from the api-linter into VS Code diagnostics.
