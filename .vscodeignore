@@ -1,28 +1,46 @@
+# The extension ships as one esbuild bundle: `out/extension.js`, with `vscode`
+# as the only external. Everything else under out/ is tsc output that nothing
+# loads at runtime -- including the compiled unit tests, whose fixtures carry
+# absolute paths from the machine that built them. Excluding the directory and
+# re-including the bundle is what the previous "ship only out/extension.js"
+# comment intended; without it the package was 2.2 MB of which 359 KB was used.
+out/**
+!out/extension.js
+
+# Sources and build tooling.
+src/**
+**/*.ts
+**/tsconfig.json
+esbuild.js
+biome.json
+bunfig.toml
+typedoc.json
+.eslintrc.json
+**/.eslintrc.json
+
+# Dev-only trees.
 .vscode/**
 .vscode-test/**
-src/**
+smoke_test/**
+prototypes/**
+vscode-proto3/**
+.github
+
+# Working notes, not user documentation.
+plan.md
+release_notes.md
+**/release_notes.md
+
+# Lockfiles and local config.
 .gitignore
 .yarnrc
 bun.lock
 package-lock.json
-typedoc.json
-release_notes.md
-**/release_notes.md
 .actrc
 .cursorignore
-.github
-vscode-proto3/**
-esbuild.js
 
-# Exclude entire smoke_test (dev/e2e only)
-smoke_test/**
-
-**/tsconfig.json
-**/.eslintrc.json
-**/*.ts
-
-# Bundled extension: ship only out/extension.js, not node_modules
+# Bundled: node_modules is never needed at runtime.
 node_modules/**
 
-# Source maps optional (uncomment to exclude from package)
-# **/*.map
+# Any previously built package.
+*.vsix

@@ -358,6 +358,29 @@ export function disposeLinterBatchPlan(plan: LinterBatchPlan): void {
  * @param outputChannel - Optional output channel for logging
  * @returns Array of VS Code Diagnostic objects
  */
+/**
+ * Matches `file:line:col: message`, with an optional Go log timestamp prefix.
+ *
+ * Three details are load-bearing, and all three were once wrong in each of the
+ * three copies of this pattern that used to exist -- which is why it now lives
+ * here alone and `linterProvider` imports it.
+ *
+ * - `(?:[A-Za-z]:)?` admits a Windows drive letter. Without it `([^:]+)` stops
+ *   at the colon in `C:\proto\a.proto`, the line never matches, and a Windows
+ *   user sees no syntax errors at all.
+ * - `\r?$` tolerates CRLF. The output is split on "\n", so a CRLF stream leaves
+ *   a carriage return on every line; `$` without the `m` flag then matches only
+ *   the true end of the string, so every line failed.
+ * - The message is non-greedy so the optional `\r` is left for the anchor
+ *   rather than swallowed into the text.
+ *
+ * Example: `proto/library.proto:12:4: syntax error: unexpected identifier`
+ * Example: `2026/02/20 14:49:31 proto/library.proto:12:4: syntax error: ...`
+ * Example: `C:\src\proto\library.proto:12:4: syntax error`
+ */
+export const SYNTAX_ERROR_REGEX =
+	/^(?:\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2} )?((?:[A-Za-z]:)?[^:]+):(\d+):(\d+):\s*(.*?)\r?$/;
+
 export const parseLinterOutput = (
 	output: string,
 	outputChannel?: vscode.OutputChannel,
@@ -411,8 +434,21 @@ export const parseLinterOutput = (
 			}
 
 			result.problems.forEach((problem) => {
-				const diagnostic = createDiagnosticFromProblem(problem);
-				diagnostics.push(diagnostic);
+				// Guarded per problem. A findings array is now one batched run over
+				// a whole module, so letting a single malformed entry throw would
+				// unwind the loop, discard every finding already collected, and
+				// hand the output to the text parser -- which matches nothing in
+				// JSON. The user would see no diagnostics at all for thousands of
+				// files, with nothing to say why.
+				try {
+					diagnostics.push(createDiagnosticFromProblem(problem));
+				} catch (error) {
+					outputChannel?.appendLine(
+						`Skipping a malformed finding${
+							result.file_path ? ` in ${result.file_path}` : ""
+						}: ${error}`,
+					);
+				}
 			});
 		});
 	} catch (error) {
@@ -439,11 +475,7 @@ export const parseGenericOutput = (
 	const diagnostics: vscode.Diagnostic[] = [];
 	const lines = output.split("\n");
 
-	// Regex for "file:line:col: message", with optional Go log timestamp prefix
-	// Example: "proto/library.proto:12:4: syntax error: unexpected identifier"
-	// Example: "2026/02/20 14:49:31 proto/library.proto:12:4: syntax error: ..."
-	const errorRegex =
-		/^(?:\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2} )?([^:]+):(\d+):(\d+):\s*(.*)$/;
+	const errorRegex = SYNTAX_ERROR_REGEX;
 
 	for (const line of lines) {
 		const match = line.match(errorRegex);
@@ -451,9 +483,13 @@ export const parseGenericOutput = (
 			const [, , lineStr, colStr, message] = match;
 
 			const lineNum = parseInt(lineStr, 10) - 1; // 1-based to 0-based
-			const colNum = parseInt(colStr, 10) - 1; // 1-based to 0-based
+			// Clamped, not rejected. Some protoc builds report column 0 to mean
+			// "the whole line"; subtracting one gave -1 and the guard below then
+			// dropped the report entirely, losing a real syntax error. The other
+			// two parsers in this pipeline already clamp.
+			const colNum = Math.max(0, parseInt(colStr, 10) - 1);
 
-			if (lineNum >= 0 && colNum >= 0) {
+			if (lineNum >= 0) {
 				const range = new vscode.Range(lineNum, colNum, lineNum, 200); // 200 is arbitrary end char
 				const diagnostic = new vscode.Diagnostic(
 					range,
@@ -486,8 +522,7 @@ export function parseSyntaxErrorsForFile(
 ): vscode.Diagnostic[] {
 	const diagnostics: vscode.Diagnostic[] = [];
 	const lines = output.split("\n");
-	const errorRegex =
-		/^(?:\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2} )?([^:]+):(\d+):(\d+):\s*(.*)$/;
+	const errorRegex = SYNTAX_ERROR_REGEX;
 	const normalizedCurrent = path.normalize(currentFileAbsolutePath);
 
 	for (const line of lines) {
@@ -509,6 +544,14 @@ export function parseSyntaxErrorsForFile(
 		}
 
 		const lineNum = parseInt(lineStr, 10) - 1;
+		// A reported line of 0 converts to -1, which `vscode.Position` rejects by
+		// throwing. This runs inside the `close` handler of the syntax check, so
+		// the throw escaped into an event callback and left that promise for ever
+		// unsettled -- the check simply never returned. The by-file parser in
+		// linterProvider already skips such a line.
+		if (lineNum < 0) {
+			continue;
+		}
 		const colNum = Math.max(0, parseInt(colStr, 10) - 1);
 		const range = new vscode.Range(
 			lineNum,

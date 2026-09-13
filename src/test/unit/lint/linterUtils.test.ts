@@ -318,7 +318,7 @@ describe("parseLinterOutput", () => {
 	// files in a batch. A `[` in a log line before the array (`[INFO] …`) loses the
 	// run the same way, because the extractor starts the slice at the first `[`.
 	// Expected: a malformed entry is skipped and its siblings still report.
-	test.skip("keeps the well-formed problems when one entry is malformed", () => {
+	test("keeps the well-formed problems when one entry is malformed", () => {
 		const diagnostics = parseLinterOutput(
 			`[{"file_path":"book.proto","problems":[{"message":"broken"},${JSON.stringify(
 				problem([4, 2], [4, 6], { message: "intact" }),
@@ -375,7 +375,7 @@ describe("parseGenericOutput", () => {
 	// three go blind together.
 	// Expected: the carriage return is stripped and the line reports as it does
 	// with LF endings.
-	test.skip("trims the carriage return from CRLF output", () => {
+	test("trims the carriage return from CRLF output", () => {
 		const [diagnostic] = parseGenericOutput("a.proto:1:1: unexpected EOF\r\n");
 		expect(diagnostic.message).toBe("unexpected EOF");
 	});
@@ -396,7 +396,7 @@ describe("parseGenericOutput", () => {
 	// `parseSyntaxErrorsForFile` and the provider's by-file parser both clamp it
 	// to 0 and report. Expected: clamp here too, rather than silently losing the
 	// error.
-	test.skip("clamps a column of zero instead of dropping the report", () => {
+	test("clamps a column of zero instead of dropping the report", () => {
 		const [diagnostic] = parseGenericOutput("a.proto:7:0: unterminated string");
 		expect(diagnostic.range.start.line).toBe(6);
 		expect(diagnostic.range.start.character).toBe(0);
@@ -406,7 +406,7 @@ describe("parseGenericOutput", () => {
 	// `buf build` that prints one is skipped and the file shows no syntax errors
 	// at all. All three parsers in the pipeline share the pattern.
 	// Expected: a drive letter is part of the path, not the line/column split.
-	test.skip("matches a Windows absolute path", () => {
+	test("matches a Windows absolute path", () => {
 		const diagnostics = parseGenericOutput(
 			"C:\\src\\proto\\library.proto:12:4: syntax error",
 		);
@@ -494,7 +494,7 @@ describe("parseSyntaxErrorsForFile", () => {
 
 	// Same regex, same CRLF blindness as `parseGenericOutput` above.
 	// Expected: a CRLF stream reports exactly as an LF one does.
-	test.skip("tolerates CRLF line endings", () => {
+	test("tolerates CRLF line endings", () => {
 		expect(
 			parseSyntaxErrorsForFile(
 				"proto/library.proto:12:4: unexpected '}'\r\n",
@@ -516,7 +516,7 @@ describe("parseSyntaxErrorsForFile", () => {
 	// handler that `runBufSyntaxCheck` parses in — leaving its promise unsettled.
 	// The provider's by-file parser skips such a line instead (linterProvider.ts).
 	// Expected: skip it here too.
-	test.skip("skips a report on line zero", () => {
+	test("skips a report on line zero", () => {
 		expect(
 			parseSyntaxErrorsForFile(
 				"proto/library.proto:0:1: file is empty",

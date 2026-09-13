@@ -12,6 +12,7 @@ import {
 	disposeLinterBatchPlan,
 	type LinterBatch,
 	parseLinterOutput,
+	SYNTAX_ERROR_REGEX,
 } from "./utils/linterUtils";
 
 /** Debounce window, in ms, before the workspace-wide `buf build` syntax check runs. */
@@ -20,9 +21,8 @@ const WORKSPACE_SYNTAX_DEBOUNCE_MS = 500;
 /** Source string for diagnostics produced by the `buf build` syntax check. */
 const SYNTAX_DIAGNOSTIC_SOURCE = "protobuf-aip-linter (syntax)";
 
-/** Matches `file:line:col: message`, with an optional Go log timestamp prefix. */
-const SYNTAX_ERROR_REGEX =
-	/^(?:\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2} )?([^:]+):(\d+):(\d+):\s*(.*)$/;
+// Imported rather than restated. Three copies of this pattern used to exist and
+// all three shared the same Windows and CRLF gaps, so they went blind together.
 
 /** Result of one child process run. */
 interface SpawnResult {
