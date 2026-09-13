@@ -1,0 +1,4 @@
+[test]
+# Resolves `import "vscode"` to the stub before any test file loads extension
+# code. Without this every module under test fails at import time.
+preload = ["./src/test/unit/support/setup.ts"]

@@ -378,7 +378,7 @@
 		"typecheck": "tsc --noEmit",
 		"watch": "tsc -watch -p ./",
 		"pretest": "bun run compile",
-		"test": "bun run compile && node out/test/runTest.js",
+		"test": "bun test src/test/unit",
 		"test:e2e": "bun run compile && node out/test/runTest.js",
 		"lint": "biome check .",
 		"format": "biome format --write .",
@@ -387,7 +387,9 @@
 		"package:npm": "rm -rf node_modules && npm install && bun run compile && vsce package",
 		"publish": "vsce publish",
 		"build:local": "bun run package",
-		"test:local": "bun run compile && code --extensionDevelopmentPath=$PWD smoke_test/protobuf"
+		"test:local": "bun run compile && code --extensionDevelopmentPath=$PWD smoke_test/protobuf",
+		"test:unit": "bun test src/test/unit",
+		"test:watch": "bun test --watch src/test/unit"
 	},
 	"overrides": {
 		"glob": "^13.0.0"
@@ -398,6 +400,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.13",
+		"@types/bun": "^1.4.2",
 		"@types/node": "^26.0.0",
 		"@types/vscode": "^1.137.0",
 		"@vscode/test-electron": "^3.0.0",
