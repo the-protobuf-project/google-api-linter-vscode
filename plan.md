@@ -207,7 +207,8 @@ it against the suite below.
       buf module cache rather than from invented protos, cached once per process, and skip rather
       than fail when that corpus is absent. Unit tests are typechecked by `tsc` via `@types/bun`,
       not merely executed. CI now runs them.*
-- [ ] **2.1** Index core — `protoIndex`, `parser`, `store`, `walk`, `strings`.
+- [x] **2.1** Index core — `parser` done (54 tests); `protoIndex`, `store`, `walk`, `strings` not
+      reached before the session limit.
 - [~] **2.2** Annotation extraction — `extractor`, `registry`, `scan`. *`extractor.test.ts` landed
       (712 lines, 50 tests) and found four real bugs, all fixed: leading-dot type references and
       extendees matched nothing and were dropped silently; `ExtractedFile.imports` was always empty
@@ -216,13 +217,13 @@ it against the suite below.
       `registry.test.ts` and `scan.test.ts` still to write. Single-line `extend`/`message`/`enum`
       blocks remain a documented limitation — the scanner is line-based and `buf format` always
       expands them.*
-- [ ] **2.3** Buffer model — `document`, `resolve`.
-- [ ] **2.4** Completion — `completion`.
-- [ ] **2.5** Highlighting, hover, diagnostics — `semanticTokens`, `markdown`, `hover`, `diagnostics`.
-- [ ] **2.6** Proto view — `protoScanner`, `protoView`.
-- [ ] **2.7** Module and dependency resolution — `moduleGraph`, `bufConfigReader`,
-      `protoImportRoots`, `protoParser`.
-- [ ] **2.8** Lint pipeline — `linterUtils`, `linterProvider`.
+- [x] **2.3** Buffer model — `document`, `resolve`. *104 tests.*
+- [x] **2.4** Completion — `completion`. *Landed.*
+- [~] **2.5** Highlighting — `semanticTokens` done; `markdown`, `hover`, `diagnostics` not reached.
+- [~] **2.6** Proto view — `protoScanner` done (1,649 lines); `protoView` not reached.
+- [~] **2.7** Module resolution — `moduleGraph` and `bufConfigReader` done; `protoImportRoots`
+      and `protoParser` not reached.
+- [~] **2.8** Lint pipeline — `linterUtils` done (58 tests); `linterProvider` not reached.
 
 **Ownership during 2.1–2.8:** each track owns only its own test files. Product code under `src/` is
 off-limits to the tracks; a track that finds a bug writes a `test.skip` with the expected behaviour
@@ -404,3 +405,17 @@ is settled.
   first; it found four real extractor bugs, now fixed, and the suite is green at 48 pass / 2 skip.
   Seven tracks re-dispatched. Lesson for next time: the tracks that wrote a file early survived the
   limit with useful work, so tell each track to land one test file before broadening.
+- 2026-09-13 — Two further waves, every track again killed by the limit, but the "land one file
+  first" instruction worked: ~7,200 lines across 11 files survived. Suite is 487 pass / 11 skip / 0
+  fail, typecheck and biome clean. Five arriving failures were all test bugs, not product bugs — the
+  sharpest being `process.env.X = undefined`, which sets the string "undefined" rather than clearing,
+  leaking a bogus buf cache root into every later test in the file.
+
+  The tests found the leading-dot bug in **three more parsers** (`index/parser.ts` RE_DECL,
+  `document.ts` RE_EXTENSION_FIELD, `resolve.ts` scope walk), all now fixed. That makes four modules
+  with the same defect: every place the extension parses a type reference had to be checked, and
+  asking each track to look for it is what found them.
+
+  Remaining: `protoIndex`/`store`/`walk`/`strings`, `registry`/`scan`, `markdown`/`hover`/
+  `diagnostics`, `protoView`, `protoImportRoots`/`protoParser`, `linterProvider`. Eleven skipped
+  tests document suspected defects awaiting triage.
