@@ -14,11 +14,7 @@
 	},
 	"Message": {
 		"prefix": "message",
-		"body": [
-			"message ${1:Name} {",
-			"  $0",
-			"}"
-		],
+		"body": ["message ${1:Name} {", "  $0", "}"],
 		"description": "Message definition"
 	},
 	"Service": {
@@ -53,12 +49,7 @@
 	},
 	"Enum": {
 		"prefix": "enum",
-		"body": [
-			"enum ${1:Name} {",
-			"  ${1:Name}_UNSPECIFIED = 0;",
-			"  $0",
-			"}"
-		],
+		"body": ["enum ${1:Name} {", "  ${1:Name}_UNSPECIFIED = 0;", "  $0", "}"],
 		"description": "Enum with UNSPECIFIED first value (AIP-203)"
 	},
 	"Option google.api.http": {
@@ -84,18 +75,12 @@
 	},
 	"Import": {
 		"prefix": "import",
-		"body": [
-			"import \"${1:path/to/file.proto}\";",
-			"$0"
-		],
+		"body": ["import \"${1:path/to/file.proto}\";", "$0"],
 		"description": "Import another proto file"
 	},
 	"Import google.api": {
 		"prefix": "importapi",
-		"body": [
-			"import \"google/api/annotations.proto\";",
-			"$0"
-		],
+		"body": ["import \"google/api/annotations.proto\";", "$0"],
 		"description": "Import Google API annotations (for google.api.http)"
 	},
 	"Resource + Service (CRUD with List)": {
