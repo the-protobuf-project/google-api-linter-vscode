@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { DIAGNOSTIC_SOURCE } from "./constants";
-import type { ProtoIndex } from "./index/types";
+import type { IndexedSymbol, ProtoIndex, SymbolKind } from "./index/types";
 import {
 	annotationLocationItem,
 	buildServiceItem,
@@ -8,12 +8,15 @@ import {
 	collectAnnotationsIn,
 	collectMessageMembers,
 	collectResources,
-	collectSymbolsOfKind,
 	DEFAULT_PROTO_VIEW_FILE_CEILING,
+	type GroupedSymbols,
+	groupSymbolsOfKind,
 	type LocationItem,
 	MAX_SECTION_SYMBOLS,
 	type RpcItem,
+	SECTION_GROUPING_THRESHOLD,
 	type ServiceItem,
+	type SymbolVersionGroup,
 	toLocationItem,
 	toRpcLocationItem,
 } from "./protoScanner";
@@ -49,6 +52,21 @@ const SYMBOL_SECTIONS: ReadonlySet<ProtoSectionId> = new Set<ProtoSectionId>([
 	"messages",
 	"enums",
 	"annotations",
+]);
+
+/**
+ * The four sections that enumerate one symbol kind, and how to label them. The
+ * `resources` and `annotations` sections are derived differently and are not in
+ * here.
+ */
+const SYMBOL_SECTION_SPECS: ReadonlyMap<
+	ProtoSectionId,
+	{ readonly kind: SymbolKind; readonly noun: string }
+> = new Map([
+	["services", { kind: "service" as SymbolKind, noun: "services" }],
+	["rpcs", { kind: "rpc" as SymbolKind, noun: "RPCs" }],
+	["messages", { kind: "message" as SymbolKind, noun: "messages" }],
+	["enums", { kind: "enum" as SymbolKind, noun: "enums" }],
 ]);
 
 export type ProtoTreeNode =
@@ -115,6 +133,22 @@ export type ProtoTreeNode =
 			kind: "annotationNamespace";
 			namespace: string;
 			count: number;
+	  }
+	| {
+			/**
+			 * One level of a grouped symbol section: a package version, or a
+			 * package within one. Derived from the indexed `package` statement,
+			 * so a workspace with no `vN` packages simply never groups.
+			 */
+			kind: "symbolGroup";
+			section: ProtoSectionId;
+			/** Version key, e.g. `v6`. */
+			version: string;
+			/** Package stem; undefined on a version node. */
+			packageKey?: string;
+			label: string;
+			count: number;
+			icon: string;
 	  }
 	| { kind: "location"; item: LocationItem }
 	| {
@@ -184,6 +218,11 @@ export class ProtoTreeDataProvider
 
 	/** Children per expanded section, dropped whenever the index changes. */
 	private readonly sectionCache = new Map<ProtoSectionId, ProtoTreeNode[]>();
+	/**
+	 * Grouped symbols per section, kept so expanding a version or a package
+	 * costs a lookup rather than a second walk of the index.
+	 */
+	private readonly groupCache = new Map<ProtoSectionId, GroupedSymbols>();
 	/** Counts learned by expanding a section, used to label it afterwards. */
 	private readonly sectionCounts = new Map<ProtoSectionId, number>();
 	private readonly indexSubscription: { dispose(): void } | undefined;
@@ -209,6 +248,7 @@ export class ProtoTreeDataProvider
 	/** Full refresh (config / index / protos structure changed). */
 	refreshStructure(): void {
 		this.sectionCache.clear();
+		this.groupCache.clear();
 		this.sectionCounts.clear();
 		this._onDidChangeTreeData.fire(undefined);
 	}
@@ -261,14 +301,22 @@ export class ProtoTreeDataProvider
 		return count !== undefined && count > this.fileCeiling;
 	}
 
-	/** The single child a symbol section shows instead of hanging. */
+	/**
+	 * Note shown at the root of a workspace past the file ceiling.
+	 *
+	 * This used to replace every symbol section with a refusal. It now reports
+	 * what the view did instead — group — because the reason for refusing was
+	 * the width of a flat list, and a grouped section does not have one.
+	 *
+	 * @returns The note node
+	 */
 	private ceilingNode(): ProtoTreeNode {
 		const count = this.indexedFileCount() ?? 0;
 		return infoNode(
-			`${count} proto files exceeds the view limit of ${this.fileCeiling}`,
-			"section not enumerated",
-			"warning",
-			`The Proto view stops enumerating symbols above ${this.fileCeiling} files so the tree cannot stall the extension host. Open a narrower folder, or raise the ceiling the view was constructed with.`,
+			`${count} proto files · symbols grouped by version`,
+			"large workspace",
+			"versions",
+			`Above ${this.fileCeiling} files the symbol sections group by package version and then by package, so no single level of the tree grows unbounded. Every symbol is still reachable; expand a version to see its packages.`,
 		);
 	}
 
@@ -455,6 +503,20 @@ export class ProtoTreeDataProvider
 			);
 			return item;
 		}
+		if (element.kind === "symbolGroup") {
+			const item = new vscode.TreeItem(
+				element.label,
+				vscode.TreeItemCollapsibleState.Collapsed,
+			);
+			item.description = String(element.count);
+			item.iconPath = new vscode.ThemeIcon(element.icon);
+			item.contextValue = "symbolGroup";
+			item.tooltip =
+				element.packageKey === undefined
+					? `${element.count} in package version ${element.label}`
+					: `${element.count} in ${element.label}.${element.version}`;
+			return item;
+		}
 		if (element.kind === "service") {
 			const item = new vscode.TreeItem(
 				element.service.name,
@@ -639,6 +701,135 @@ export class ProtoTreeDataProvider
 		return children;
 	}
 
+	/**
+	 * Turns one indexed symbol into the leaf node its section renders.
+	 * @param index - The workspace index
+	 * @param id - Section the symbol belongs to
+	 * @param symbol - The symbol
+	 * @returns The node, or undefined when no location could be derived
+	 */
+	private symbolNode(
+		index: ProtoIndex,
+		id: ProtoSectionId,
+		symbol: IndexedSymbol,
+	): ProtoTreeNode | undefined {
+		if (id === "services") {
+			const service = buildServiceItem(index, symbol);
+			return service ? { kind: "service", service } : undefined;
+		}
+		if (id === "rpcs") {
+			const item = toRpcLocationItem(index, symbol);
+			return item ? { kind: "location", item } : undefined;
+		}
+		if (id === "messages") {
+			const item = toLocationItem(
+				index,
+				symbol,
+				"message",
+				"symbol-class",
+				true,
+			);
+			return item ? { kind: "location", item } : undefined;
+		}
+		if (id === "enums") {
+			const item = toLocationItem(index, symbol, "enum", "symbol-enum");
+			return item ? { kind: "location", item } : undefined;
+		}
+		return undefined;
+	}
+
+	/**
+	 * True when a section should present version groups rather than a flat list.
+	 *
+	 * Grouping is what replaced the old refusal. Above the file ceiling these
+	 * sections used to render a single "exceeds the view limit" notice, which on
+	 * a 9,280-file workspace meant every symbol section was empty; the symbols
+	 * were indexed and reachable by every other provider, just not listed here.
+	 * Version groups keep each rendered level small, so there is nothing left to
+	 * refuse — the ceiling now only decides when to group.
+	 *
+	 * @param grouped - The collected symbols
+	 * @returns True to render groups
+	 */
+	private shouldGroup(grouped: GroupedSymbols): boolean {
+		if (grouped.total === 0) {
+			return false;
+		}
+		return this.overCeiling() || grouped.total > SECTION_GROUPING_THRESHOLD;
+	}
+
+	/**
+	 * The package nodes under one version.
+	 * @param id - Owning section
+	 * @param version - The version group
+	 * @returns One node per package in that version
+	 */
+	private packageGroupNodes(
+		id: ProtoSectionId,
+		version: SymbolVersionGroup,
+	): ProtoTreeNode[] {
+		return version.packages.map((pkg) => ({
+			kind: "symbolGroup" as const,
+			section: id,
+			version: version.key,
+			packageKey: pkg.key,
+			label: pkg.label,
+			count: pkg.symbols.length,
+			icon: "package",
+		}));
+	}
+
+	/**
+	 * One symbol section, grouped by package version when it is large enough to
+	 * need it and flat when it is not.
+	 * @param index - The workspace index
+	 * @param id - Section to build
+	 * @returns The section's children
+	 */
+	private buildSymbolSection(
+		index: ProtoIndex,
+		id: ProtoSectionId,
+	): ProtoTreeNode[] {
+		const spec = SYMBOL_SECTION_SPECS.get(id);
+		if (!spec) {
+			return [];
+		}
+		const grouped = groupSymbolsOfKind(index, spec.kind);
+		this.groupCache.set(id, grouped);
+
+		const nodes: ProtoTreeNode[] = [];
+		if (this.shouldGroup(grouped)) {
+			// A workspace with one release would otherwise get a version level
+			// that is a single node wrapping everything, so skip straight to
+			// packages.
+			if (grouped.versions.length === 1) {
+				nodes.push(...this.packageGroupNodes(id, grouped.versions[0]));
+			} else {
+				for (const version of grouped.versions) {
+					nodes.push({
+						kind: "symbolGroup",
+						section: id,
+						version: version.key,
+						label: version.label,
+						count: version.count,
+						icon: "versions",
+					});
+				}
+			}
+		} else {
+			for (const symbol of grouped.symbols) {
+				const node = this.symbolNode(index, id, symbol);
+				if (node) {
+					nodes.push(node);
+				}
+			}
+		}
+		if (grouped.truncated) {
+			nodes.push(cappedNode(grouped.total, MAX_SECTION_SYMBOLS, spec.noun));
+		}
+		return nodes;
+	}
+
 	private async buildSection(id: ProtoSectionId): Promise<ProtoTreeNode[]> {
 		if (id === "deps") {
 			const [googleapisCommit, protobufCommit] = await Promise.all([
@@ -655,82 +846,15 @@ export class ProtoTreeDataProvider
 		}
 
 		const index = this.usableIndex();
-		if (SYMBOL_SECTIONS.has(id)) {
-			if (!index) {
-				return [this.noIndexNode()];
-			}
-			if (this.overCeiling()) {
-				return [this.ceilingNode()];
-			}
+		if (SYMBOL_SECTIONS.has(id) && !index) {
+			return [this.noIndexNode()];
 		}
 		if (!index) {
 			return [];
 		}
 
-		if (id === "services") {
-			const collected = collectSymbolsOfKind(index, "service");
-			const nodes: ProtoTreeNode[] = [];
-			for (const symbol of collected.symbols) {
-				const service = buildServiceItem(index, symbol);
-				if (service) {
-					nodes.push({ kind: "service", service });
-				}
-			}
-			if (collected.truncated) {
-				nodes.push(cappedNode(nodes.length, MAX_SECTION_SYMBOLS, "services"));
-			}
-			return nodes;
-		}
-
-		if (id === "rpcs") {
-			const collected = collectSymbolsOfKind(index, "rpc");
-			const nodes: ProtoTreeNode[] = [];
-			for (const symbol of collected.symbols) {
-				const item = toRpcLocationItem(index, symbol);
-				if (item) {
-					nodes.push({ kind: "location", item });
-				}
-			}
-			if (collected.truncated) {
-				nodes.push(cappedNode(nodes.length, MAX_SECTION_SYMBOLS, "RPCs"));
-			}
-			return nodes;
-		}
-
-		if (id === "messages") {
-			const collected = collectSymbolsOfKind(index, "message");
-			const nodes: ProtoTreeNode[] = [];
-			for (const symbol of collected.symbols) {
-				const item = toLocationItem(
-					index,
-					symbol,
-					"message",
-					"symbol-class",
-					true,
-				);
-				if (item) {
-					nodes.push({ kind: "location", item });
-				}
-			}
-			if (collected.truncated) {
-				nodes.push(cappedNode(nodes.length, MAX_SECTION_SYMBOLS, "messages"));
-			}
-			return nodes;
-		}
-
-		if (id === "enums") {
-			const collected = collectSymbolsOfKind(index, "enum");
-			const nodes: ProtoTreeNode[] = [];
-			for (const symbol of collected.symbols) {
-				const item = toLocationItem(index, symbol, "enum", "symbol-enum");
-				if (item) {
-					nodes.push({ kind: "location", item });
-				}
-			}
-			if (collected.truncated) {
-				nodes.push(cappedNode(nodes.length, MAX_SECTION_SYMBOLS, "enums"));
-			}
-			return nodes;
+		if (SYMBOL_SECTION_SPECS.has(id)) {
+			return this.buildSymbolSection(index, id);
 		}
 
 		if (id === "resources") {
@@ -834,6 +958,37 @@ export class ProtoTreeDataProvider
 				const item = annotationLocationItem(index, descriptor);
 				if (item) {
 					nodes.push({ kind: "location", item });
+				}
+			}
+			return nodes;
+		}
+
+		if (element?.kind === "symbolGroup") {
+			const index = this.usableIndex();
+			const grouped = this.groupCache.get(element.section);
+			if (!index || !grouped) {
+				return [];
+			}
+			const version = grouped.versions.find(
+				(entry) => entry.key === element.version,
+			);
+			if (!version) {
+				return [];
+			}
+			if (element.packageKey === undefined) {
+				return this.packageGroupNodes(element.section, version);
+			}
+			const pkg = version.packages.find(
+				(entry) => entry.key === element.packageKey,
+			);
+			if (!pkg) {
+				return [];
+			}
+			const nodes: ProtoTreeNode[] = [];
+			for (const symbol of pkg.symbols) {
+				const node = this.symbolNode(index, element.section, symbol);
+				if (node) {
+					nodes.push(node);
 				}
 			}
 			return nodes;
@@ -1010,10 +1165,13 @@ export class ProtoTreeDataProvider
 		const index = this.usableIndex();
 		if (!index) {
 			roots.push(this.noIndexNode());
-		} else if (this.overCeiling()) {
-			roots.push(this.ceilingNode());
 		} else {
 			const stats = index.stats();
+			// Above the ceiling the sections are still listed — they group by
+			// package version instead of refusing. The node only says so.
+			if (this.overCeiling()) {
+				roots.push(this.ceilingNode());
+			}
 			roots.push(
 				{
 					kind: "section",

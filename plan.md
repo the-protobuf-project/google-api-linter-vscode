@@ -144,6 +144,46 @@ Interfaces are defined up front so every track builds against them concurrently 
 - [x] **1a.6** (G) Hardcoded MCP removed everywhere. *All nine stale snippets deleted, including
       the `mcp/protobuf/annotations.proto` import snippet.*
 
+### Phase 1b — value completion and version grouping
+
+Both items came from using the extension on this repo, not from the original plan.
+
+- [x] **1b.1** Enum value completion at value position. *`contextAt` answers a structural question
+      — statement / bracket list / option body — which is all a name completion needs, so
+      `(google.api.field_behavior) = ▮` offered annotation **names**: a list of every option legal
+      on the element, none of which is a legal thing to type there. Added `valuePositionAt`, which
+      reads the offsets the model already parsed (so a value split across lines resolves the same
+      as an inline one) and reports the option or body field being assigned. Enum and `bool` types
+      get items; open sets — string, int — deliberately get none.*
+- [x] **1b.2** Enum values in the type hint. *`renderFieldCard` listed them already; the annotation
+      card and the body-field completion detail did not. An option with no body message — which is
+      `google.api.field_behavior`, used 59,617 times in this repo — fell through the card renderer
+      entirely and showed no values at all. Also fixed a latent resolution bug: field types resolved
+      against the annotation's namespace rather than the declaring body's, which missed every enum
+      whose option body lives in another package.*
+- [x] **1b.3** Symbol sections group by package version. *Above the file ceiling the root pushed one
+      "exceeds the view limit" notice **and no sections at all**, so on this workspace the Proto view
+      listed zero symbols — they were indexed and reachable from every other provider, just not
+      listed here. The refusal existed because a flat list of 9,502 siblings is what stalls the tree,
+      so the fix is to remove the width rather than the section: group by the `vN` segment of the
+      package, then by package stem. Derived from the indexed `package` statement, so a workspace
+      with no versioned packages simply never groups, and a single-version workspace skips the
+      version level rather than rendering one node wrapping everything.*
+
+- [x] **1b.4** Annotation highlighting actually renders. *The semantic tokens provider was correct
+      and registered, and the `package.json` contributions were present — but `configurationDefaults`
+      never set `editor.semanticHighlighting.enabled`, whose default is `configuredByTheme`. On a
+      theme that does not opt in, every token was computed and thrown away. Now defaulted to `true`
+      scoped to `[proto3]`/`[protobuf]` only, so nothing else in the editor changes and a user can
+      still override it.*
+- [x] **1b.5** Enum values highlighted. *`= OPTIONAL` carried no token: the grammar paints the whole
+      bracket uniformly as `support.other.proto`, so the value read the same as the option name. Two
+      new types — `protoAnnotationValue` (superType `enumMember`) and `protoAnnotationValueUnknown`
+      (`invalid.illegal`) — reusing the enum resolution added in 1b.1/1b.2. A value the enum does not
+      declare is marked wrong in the editor instead of at `buf build`. The `package.json` block is
+      now **generated** from `SEMANTIC_TOKEN_*_CONTRIBUTION` in `support.ts` rather than pasted, since
+      "paste verbatim" is exactly what drifts.*
+
 ### Integration
 
 - [x] **I.1** Register new providers in `extension.ts`; wire the index lifecycle. *Done.*
@@ -242,6 +282,11 @@ Measured on protobuf-fhir (9,257 indexed protos) after the rewrite.
 | Resolve buf deps | 1.7 s blocking `spawnSync`, failed on this repo | reads `buf.lock`, no subprocess |
 | Rename `Address` | **154 files rewritten silently** | 1 file |
 | Custom annotations | 9 hardcoded `mcp.protobuf.*` entries, all dead | 59 derived, 11 namespaces, 53 ms |
+| Proto view symbol sections | **0 listed** above the ceiling — sections replaced by a notice | 11,866 reachable; widest level 246 |
+| `(google.api.field_behavior) = ▮` | annotation names — nothing legal at that position | 9 enum values, in declaration order |
+| Enum values on a hover card | body fields only, resolved against the wrong namespace | every enum-typed option and field |
+| Annotation highlighting | computed, then discarded unless the theme opted in | on by default for proto buffers |
+| Annotation tokens, whole tree | name and body key only | 236,694 tokens incl. 57,243 enum values, 0.04 ms/file |
 
 `openTextDocument` call sites in bulk paths: **zero**. The one remaining call opens the single file
 behind a clicked Proto view node.
@@ -264,9 +309,13 @@ Benchmarks live in the session scratchpad but are reproducible: index build time
 `../protobuf`, `buf format` batched vs per-file, api-linter batched vs per-file.
 
 **Known repo blockers in protobuf-fhir** (not extension bugs, but they break `buf export` and make
-measurements untrustworthy): `Integer64` is referenced in 54 `attachment.proto` files but defined
-nowhere; the root `buf.yaml` declares no `modules:` so the nested `google-api-linter-vscode/`
-checkout is compiled into the FHIR module.
+measurements untrustworthy). `Integer64` referenced in 54 `attachment.proto` files but defined
+nowhere — **fixed**: FHIR R5's `integer64` was missing from `primitiveMap` in
+`tools/protogen/types.go`, so the generator fell through to its complex-type fallback and emitted a
+type name nothing declares; it now maps to `int64`. Still open: the root `buf.yaml` declares no
+`modules:`, so the nested `google-api-linter-vscode/` checkout is compiled into the FHIR module and
+contributes 10 errors to every `buf build`. Scope buf invocations with `--path protobuf` until that
+is settled.
 
 ---
 
@@ -291,3 +340,15 @@ checkout is compiled into the FHIR module.
   (index core) and integration remain.
 - 2026-09-13 — Track D landed (index core) and integration complete. All of Phase 0, Phase 1 and
   Phase 1a are done. Remaining optional work: Phase 2 (Rust sidecar) and Phase 3, neither started.
+- 2026-09-13 — Phase 1b landed: enum value completion, enum hints on hover cards, and version
+  grouping in the Proto view. Verified outside the extension host against the real workspace —
+  9/9 completion fixtures (including two negative cases: a name position still offers names, an
+  open-valued field offers nothing), 8/8 version/stem cases, and a root-to-leaf walk reaching
+  11,866 symbols with no group wider than 246. Harnesses in the session scratchpad
+  (`valuecomp.js`, `grouping.js`, `tree.js`, `hints.js`); they stub `vscode` and drive the real
+  compiled providers.
+- 2026-09-13 — Highlighting finished: semantic highlighting defaulted on for proto buffers, and
+  enum values tokenised. Swept all 9,280 protos — 236,694 tokens, 355 ms total, worst file 2 ms,
+  and zero `protoAnnotationValueUnknown`, which also says the generated tree has no enum typos.
+  Typo fixtures (`REQUIRE`, lowercase `optional`, `IGNORE_NEVER`) all flag; int- and string-valued
+  fields correctly get no token. Harness: `tokens.js`, `sweep.js`.

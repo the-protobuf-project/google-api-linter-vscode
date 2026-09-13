@@ -23,6 +23,172 @@ export const MAX_SECTION_SYMBOLS = 20000;
 /** Hard cap on how many files the resource scan will read from disk. */
 export const MAX_RESOURCE_SCAN_FILES = 500;
 
+/**
+ * Symbol count above which a section groups its children by package version
+ * instead of listing them flat.
+ *
+ * The number is about what a tree can render, not what the index can hold. A
+ * section below this lists fine; above it, VS Code is being handed thousands of
+ * siblings it will lay out in one pass, which is what the old file ceiling
+ * refused outright. Grouping makes the refusal unnecessary: each level stays
+ * small, and the levels below are built only when one is expanded.
+ */
+export const SECTION_GROUPING_THRESHOLD = 500;
+
+/** Key used for a package that carries no `vN` segment at all. */
+export const UNVERSIONED_GROUP = "unversioned";
+
+/**
+ * The version segment of a proto package.
+ * @param packageName - e.g. `protobuf.fhir.clinical.diagnostics.v6.types`
+ * @returns `v6`, or undefined when no segment matches `vN`/`vNalphaM`/`vNbetaM`
+ */
+export function packageVersion(packageName: string): string | undefined {
+	for (const part of packageName.split(".")) {
+		if (/^v\d+(?:(?:alpha|beta)\d*)?$/.test(part)) {
+			return part;
+		}
+	}
+	return undefined;
+}
+
+/**
+ * A package name with its version segment and everything after it removed, so
+ * the three releases of one module collapse to a single group label.
+ * @param packageName - e.g. `protobuf.fhir.clinical.diagnostics.v6.types`
+ * @returns e.g. `protobuf.fhir.clinical.diagnostics`
+ */
+export function packageStem(packageName: string): string {
+	const parts = packageName.split(".");
+	for (let i = 0; i < parts.length; i++) {
+		if (/^v\d+(?:(?:alpha|beta)\d*)?$/.test(parts[i])) {
+			return parts.slice(0, i).join(".");
+		}
+	}
+	return packageName;
+}
+
+/** One package's symbols within one version group. */
+export interface SymbolPackageGroup {
+	/** Package stem, version removed. Empty string when the file declares none. */
+	readonly key: string;
+	readonly label: string;
+	readonly symbols: readonly IndexedSymbol[];
+}
+
+/** One version's packages. */
+export interface SymbolVersionGroup {
+	/** `v6`, or {@link UNVERSIONED_GROUP}. */
+	readonly key: string;
+	readonly label: string;
+	readonly count: number;
+	readonly packages: readonly SymbolPackageGroup[];
+}
+
+/** Symbols of one kind, grouped version-first. */
+export interface GroupedSymbols {
+	readonly versions: readonly SymbolVersionGroup[];
+	/**
+	 * The same symbols, flat and name-sorted, so a section small enough to list
+	 * flat does not pay for a second walk of the index.
+	 */
+	readonly symbols: readonly IndexedSymbol[];
+	readonly total: number;
+	readonly truncated: boolean;
+}
+
+/**
+ * Every symbol of one kind, grouped by the version segment of its package and
+ * then by the package stem.
+ *
+ * Version first because that is the axis a reader navigates by: an author works
+ * in one release at a time, and a flat list interleaves `v4`, `v5` and `v6`
+ * spellings of the same name with nothing to tell them apart. The same walk and
+ * the same cap as {@link collectSymbolsOfKind} — this only changes the shape.
+ *
+ * @param index - The workspace index
+ * @param kind - Symbol kind to collect
+ * @param max - Cap on symbols materialised
+ * @returns Version groups, sorted newest version first, packages by name
+ */
+export function groupSymbolsOfKind(
+	index: ProtoIndex,
+	kind: SymbolKind,
+	max: number = MAX_SECTION_SYMBOLS,
+): GroupedSymbols {
+	const collected = collectSymbolsOfKind(index, kind, max);
+	const byVersion = new Map<string, Map<string, IndexedSymbol[]>>();
+
+	for (const symbol of collected.symbols) {
+		const file = index.file(symbol.fileId);
+		const packageName = file?.packageName ?? "";
+		const version = packageVersion(packageName) ?? UNVERSIONED_GROUP;
+		const stem = packageStem(packageName);
+		let packages = byVersion.get(version);
+		if (!packages) {
+			packages = new Map();
+			byVersion.set(version, packages);
+		}
+		const bucket = packages.get(stem);
+		if (bucket) {
+			bucket.push(symbol);
+		} else {
+			packages.set(stem, [symbol]);
+		}
+	}
+
+	const versions: SymbolVersionGroup[] = [];
+	for (const [key, packages] of byVersion) {
+		const groups: SymbolPackageGroup[] = [];
+		let count = 0;
+		for (const [stem, symbols] of packages) {
+			count += symbols.length;
+			groups.push({
+				key: stem,
+				label: stem === "" ? "(no package)" : stem,
+				symbols,
+			});
+		}
+		groups.sort((a, b) => a.label.localeCompare(b.label));
+		versions.push({
+			key,
+			label: key === UNVERSIONED_GROUP ? "unversioned" : key,
+			count,
+			packages: groups,
+		});
+	}
+	// Newest release first: the version a reader is most likely working in.
+	versions.sort((a, b) => compareVersionKeys(a.key, b.key));
+
+	return {
+		versions,
+		symbols: collected.symbols,
+		total: collected.symbols.length,
+		truncated: collected.truncated,
+	};
+}
+
+/**
+ * Orders version keys newest first, with `unversioned` last.
+ * @param a - First key
+ * @param b - Second key
+ * @returns Negative when `a` sorts before `b`
+ */
+function compareVersionKeys(a: string, b: string): number {
+	if (a === b) {
+		return 0;
+	}
+	if (a === UNVERSIONED_GROUP) {
+		return 1;
+	}
+	if (b === UNVERSIONED_GROUP) {
+		return -1;
+	}
+	const na = Number.parseInt(a.slice(1), 10);
+	const nb = Number.parseInt(b.slice(1), 10);
+	return na === nb ? a.localeCompare(b) : nb - na;
+}
+
 /** One workspace location the Proto view can reveal. */
 export interface LocationItem {
 	label: string;

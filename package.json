@@ -176,10 +176,12 @@
 		},
 		"configurationDefaults": {
 			"[proto3]": {
-				"editor.defaultFormatter": "the-protobuf-project.google-api-linter"
+				"editor.defaultFormatter": "the-protobuf-project.google-api-linter",
+				"editor.semanticHighlighting.enabled": true
 			},
 			"[protobuf]": {
-				"editor.defaultFormatter": "the-protobuf-project.google-api-linter"
+				"editor.defaultFormatter": "the-protobuf-project.google-api-linter",
+				"editor.semanticHighlighting.enabled": true
 			}
 		},
 		"viewsContainers": {
@@ -309,6 +311,11 @@
 				"description": "A field inside a custom option's message body"
 			},
 			{
+				"id": "protoAnnotationValue",
+				"superType": "enumMember",
+				"description": "An enum member assigned to a custom option or one of its body fields"
+			},
+			{
 				"id": "protoAnnotationUnknown",
 				"superType": "decorator",
 				"description": "A custom protobuf option that no indexed extend block declares, or whose annotations.proto this file does not import"
@@ -317,6 +324,11 @@
 				"id": "protoAnnotationFieldUnknown",
 				"superType": "property",
 				"description": "A field the custom option's message body does not declare"
+			},
+			{
+				"id": "protoAnnotationValueUnknown",
+				"superType": "enumMember",
+				"description": "A value assigned to an enum-typed option or field that the enum does not declare"
 			}
 		],
 		"semanticTokenScopes": [
@@ -338,11 +350,20 @@
 						"support.type.property-name",
 						"meta.object-literal.key"
 					],
+					"protoAnnotationValue": [
+						"variable.other.enummember",
+						"constant.other.enum",
+						"constant.language"
+					],
 					"protoAnnotationUnknown": [
 						"invalid.illegal",
 						"invalid"
 					],
 					"protoAnnotationFieldUnknown": [
+						"invalid.illegal",
+						"invalid"
+					],
+					"protoAnnotationValueUnknown": [
 						"invalid.illegal",
 						"invalid"
 					]

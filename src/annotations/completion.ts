@@ -27,8 +27,17 @@ import type {
 	AnnotationField,
 	AnnotationTarget,
 } from "../index/types";
-import type { ProtoDocumentModel } from "./document";
-import { fieldType, renderAnnotationCard, summaryLine } from "./markdown";
+import type {
+	BodyFieldReference,
+	OptionReference,
+	ProtoDocumentModel,
+} from "./document";
+import {
+	enumValueHint,
+	fieldType,
+	renderAnnotationCard,
+	summaryLine,
+} from "./markdown";
 import { type AnnotationRegistryImpl, isScalar } from "./registry";
 import {
 	type AnnotationSource,
@@ -39,8 +48,14 @@ import {
 	resolveDescriptor,
 } from "./resolve";
 
-/** Characters that open an annotation completion without a word prefix. */
-export const ANNOTATION_TRIGGER_CHARACTERS = ["(", "."];
+/**
+ * Characters that open an annotation completion without a word prefix.
+ *
+ * `=` and `:` are here for value completion: the moment an option or a body
+ * field is assigned, the legal values are knowable, and an enum-typed one has a
+ * closed set of them.
+ */
+export const ANNOTATION_TRIGGER_CHARACTERS = ["(", ".", "=", ":", " "];
 
 /**
  * Body fields expanded inline. Past this the snippet inserts an empty body and
@@ -184,6 +199,119 @@ function optionValueSnippet(
 		(field) => `\t${fieldSnippet(field, namespace, registry, stops)}`,
 	);
 	return `{\n${lines.join("\n")}\n}`;
+}
+
+/**
+ * A cursor sitting where a *value* goes, rather than a name.
+ *
+ * `contextAt` answers a structural question — statement, bracket list, option
+ * body — and that is all name completion needs. It cannot tell `(mcp.v1.tool)▮`
+ * from `(mcp.v1.tool) = ▮`, so without this the second position offered
+ * annotation names: a list of every option legal on the element, none of which
+ * is a legal thing to type there.
+ */
+interface ValuePosition {
+	/** The annotation whose value is being written. */
+	readonly optionFqn: string;
+	/**
+	 * Path from the option body root to the field being assigned. Empty when
+	 * the option itself is being assigned, as for `(google.api.field_behavior)`.
+	 */
+	readonly path: readonly string[];
+	/** Range the value text occupies so far. */
+	readonly range: vscode.Range;
+}
+
+/** Trailing text between a name and the cursor that means "a value goes here". */
+const RE_AFTER_EQUALS = /^\s*=\s*\[?\s*(?:[\w.]*)$/;
+const RE_AFTER_COLON = /^\s*:\s*\[?\s*(?:[\w.]*)$/;
+
+/**
+ * Decides whether the cursor is in value position, and for which option or
+ * field.
+ *
+ * Works off the offsets the model already parsed rather than re-reading the
+ * buffer, so a value split across lines — which `option (x) = {\n  y: ▮` is —
+ * resolves the same as one written inline.
+ *
+ * @param document - The buffer
+ * @param position - Cursor position
+ * @param model - Structural model of the buffer
+ * @returns The value position, or undefined when the cursor is writing a name
+ */
+function valuePositionAt(
+	document: vscode.TextDocument,
+	position: vscode.Position,
+	model: ProtoDocumentModel,
+): ValuePosition | undefined {
+	const offset = document.offsetAt(position);
+	const text = document.getText();
+
+	// A body field binds tighter than the option it sits in: in `option (x) = {
+	// y: ▮ }` both the option and the field precede the cursor, and the value
+	// belongs to the field.
+	let field: BodyFieldReference | undefined;
+	for (const candidate of model.bodyFields) {
+		if (candidate.end <= offset && (!field || candidate.end > field.end)) {
+			field = candidate;
+		}
+	}
+	if (field && RE_AFTER_COLON.test(text.slice(field.end, offset))) {
+		return {
+			optionFqn: field.optionFqn,
+			path: field.path,
+			range: valueRange(document, position),
+		};
+	}
+
+	let option: OptionReference | undefined;
+	for (const candidate of model.options) {
+		if (candidate.end <= offset && (!option || candidate.end > option.end)) {
+			option = candidate;
+		}
+	}
+	if (!option) {
+		return undefined;
+	}
+	// `.accessors` are written between the `)` and the `=`, so skip them before
+	// testing what separates the reference from the cursor.
+	const accessorLength = option.accessors.reduce(
+		(total, accessor) => total + accessor.length + 1,
+		0,
+	);
+	const between = text.slice(option.end + accessorLength, offset);
+	if (!RE_AFTER_EQUALS.test(between)) {
+		return undefined;
+	}
+	return {
+		optionFqn: option.fqn,
+		path: option.accessors,
+		range: valueRange(document, position),
+	};
+}
+
+/**
+ * The range a value completion replaces: the identifier characters already
+ * typed, and nothing else.
+ * @param document - The buffer
+ * @param position - Cursor position
+ * @returns Range covering the partial value
+ */
+function valueRange(
+	document: vscode.TextDocument,
+	position: vscode.Position,
+): vscode.Range {
+	const line = document.lineAt(position.line).text;
+	let start = position.character;
+	while (start > 0 && /[\w.]/.test(line[start - 1])) {
+		start--;
+	}
+	return new vscode.Range(
+		position.line,
+		start,
+		position.line,
+		position.character,
+	);
 }
 
 /** What the text around the cursor says about how to insert an option. */
@@ -337,6 +465,13 @@ export class AnnotationCompletionProvider
 			document.version,
 			document.getText(),
 		);
+		// Checked before the structural context: a cursor after `=` or `:` is
+		// writing a value, whatever block it happens to sit in.
+		const value = valuePositionAt(document, position, model);
+		if (value) {
+			return this.valueItems(model, registry, value);
+		}
+
 		const context = model.contextAt(document.offsetAt(position));
 		if (context.kind === "none" || !context.target) {
 			return undefined;
@@ -382,6 +517,93 @@ export class AnnotationCompletionProvider
 		markdown.isTrusted = true;
 		item.documentation = markdown;
 		return item;
+	}
+
+	/**
+	 * The legal values at a value position.
+	 *
+	 * Only closed value sets are offered. An enum has one; so does `bool`. A
+	 * string or an int does not, and offering a placeholder there would put a
+	 * completion popup in front of someone who knows perfectly well what they
+	 * are typing.
+	 *
+	 * @param model - Structural model of the buffer
+	 * @param registry - The annotation registry
+	 * @param value - Where the cursor is and what it is assigning
+	 * @returns One item per legal value, or undefined when the set is open
+	 */
+	private valueItems(
+		model: ProtoDocumentModel,
+		registry: AnnotationRegistryImpl,
+		value: ValuePosition,
+	): vscode.CompletionItem[] | undefined {
+		const descriptor = resolveDescriptor(
+			registry,
+			value.optionFqn,
+			model.packageName,
+		);
+		if (!descriptor) {
+			return undefined;
+		}
+
+		// With no path the option's own type is being assigned; with one, the
+		// type of the field at that path.
+		let type: string;
+		let namespace: string;
+		if (value.path.length === 0) {
+			type = descriptor.type;
+			namespace = descriptor.namespace;
+		} else {
+			const field = registry.fieldAt(descriptor, value.path);
+			if (!field || field.messageFqn) {
+				return undefined;
+			}
+			const body = registry.bodyAt(descriptor, value.path.slice(0, -1));
+			type = field.type;
+			namespace = body
+				? body.fqn.slice(0, body.fqn.lastIndexOf("."))
+				: descriptor.namespace;
+		}
+
+		if (type === "bool") {
+			return ["true", "false"].map((literal, order) => {
+				const item = new vscode.CompletionItem(
+					literal,
+					vscode.CompletionItemKind.Keyword,
+				);
+				item.detail = "bool";
+				item.range = value.range;
+				item.sortText = String(order);
+				return item;
+			});
+		}
+
+		const enumFqn = registry.resolveEnumFqn(type, namespace);
+		const values = enumFqn ? registry.enumValues(enumFqn) : undefined;
+		if (!enumFqn || !values || values.length === 0) {
+			return undefined;
+		}
+		return values.map((name, order) => {
+			const item = new vscode.CompletionItem(
+				name,
+				vscode.CompletionItemKind.EnumMember,
+			);
+			item.detail = enumFqn;
+			item.range = value.range;
+			// Declaration order, not alphabetical: an enum's first value is its
+			// zero and the rest are usually ordered meaningfully.
+			item.sortText = String(order).padStart(4, "0");
+			// `_UNSPECIFIED` is the proto3 zero value, almost never what an
+			// author means to write, so it sorts last despite being declared
+			// first.
+			if (name.endsWith("_UNSPECIFIED")) {
+				item.sortText = "zzzz";
+				item.documentation = new vscode.MarkdownString(
+					"The proto3 default. Setting it explicitly is the same as leaving the option off.",
+				);
+			}
+			return item;
+		});
 	}
 
 	/**
@@ -496,11 +718,17 @@ export class AnnotationCompletionProvider
 				field.name,
 				vscode.CompletionItemKind.Field,
 			);
-			item.detail = `${fieldType(field)} · field ${field.number}`;
+			const hint = field.messageFqn
+				? undefined
+				: enumValueHint(field.type, namespace, registry);
+			item.detail = `${fieldType(field)}${hint ? " · enum" : ""} · field ${field.number}`;
 			item.range = range;
 			item.sortText = String(field.number).padStart(6, "0");
-			if (field.doc) {
-				item.documentation = new vscode.MarkdownString(field.doc);
+			const docs = [field.doc, hint ? `**Values** ${hint}` : undefined]
+				.filter(Boolean)
+				.join("\n\n");
+			if (docs) {
+				item.documentation = new vscode.MarkdownString(docs);
 			}
 			item.insertText = hasColon
 				? field.name

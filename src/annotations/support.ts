@@ -61,6 +61,12 @@ export const SEMANTIC_TOKEN_TYPE_CONTRIBUTION = [
 		description: "A field inside a custom option's message body",
 	},
 	{
+		id: "protoAnnotationValue",
+		superType: "enumMember",
+		description:
+			"An enum member assigned to a custom option or one of its body fields",
+	},
+	{
 		id: "protoAnnotationUnknown",
 		superType: "decorator",
 		description:
@@ -70,6 +76,12 @@ export const SEMANTIC_TOKEN_TYPE_CONTRIBUTION = [
 		id: "protoAnnotationFieldUnknown",
 		superType: "property",
 		description: "A field the custom option's message body does not declare",
+	},
+	{
+		id: "protoAnnotationValueUnknown",
+		superType: "enumMember",
+		description:
+			"A value assigned to an enum-typed option or field that the enum does not declare",
 	},
 ] as const;
 
@@ -99,8 +111,14 @@ export const SEMANTIC_TOKEN_SCOPE_CONTRIBUTION = [
 				"support.type.property-name",
 				"meta.object-literal.key",
 			],
+			protoAnnotationValue: [
+				"variable.other.enummember",
+				"constant.other.enum",
+				"constant.language",
+			],
 			protoAnnotationUnknown: ["invalid.illegal", "invalid"],
 			protoAnnotationFieldUnknown: ["invalid.illegal", "invalid"],
+			protoAnnotationValueUnknown: ["invalid.illegal", "invalid"],
 		},
 	},
 ] as const;

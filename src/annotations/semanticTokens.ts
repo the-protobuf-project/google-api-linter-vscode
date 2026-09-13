@@ -31,16 +31,20 @@ import {
 /**
  * Token types this provider emits.
  *
- * `protoAnnotation` and `protoAnnotationField` mark names that resolved.
- * The `Unknown` pair marks names that did not, and is deliberately mapped to
- * `invalid.illegal` so every theme renders it as a mistake.
+ * `protoAnnotation`, `protoAnnotationField` and `protoAnnotationValue` mark
+ * names that resolved. The `Unknown` variants mark names that did not, and are
+ * deliberately mapped to `invalid.illegal` so every theme renders them as a
+ * mistake — including a value that is not a member of the enum the field is
+ * typed as, which is otherwise invisible until `buf build`.
  */
 export const ANNOTATION_TOKEN_TYPES = [
 	"protoAnnotation",
 	"protoAnnotationNamespace",
 	"protoAnnotationField",
+	"protoAnnotationValue",
 	"protoAnnotationUnknown",
 	"protoAnnotationFieldUnknown",
+	"protoAnnotationValueUnknown",
 ] as const;
 
 /** Standard modifiers this provider uses. Neither needs contributing. */
@@ -80,7 +84,33 @@ function isDeprecated(doc: string | undefined): boolean {
 }
 
 /**
- * Semantic tokens for annotation names and option-body field names.
+ * The identifier assigned to an option or body field, if one is written there.
+ *
+ * Only a bare identifier is returned: a string, a number or a `{` body is not a
+ * value this provider has anything to say about.
+ *
+ * @param text - Full document text
+ * @param from - Offset just past the option or field name
+ * @returns Offsets of the assigned identifier, or undefined
+ */
+function readAssignedIdent(
+	text: string,
+	from: number,
+): { start: number; end: number; value: string } | undefined {
+	const match = /^\s*[=:]\s*([A-Za-z_]\w*)/.exec(text.slice(from));
+	if (!match) {
+		return undefined;
+	}
+	const start = from + match[0].length - match[1].length;
+	return { start, end: start + match[1].length, value: match[1] };
+}
+
+/** Value literals that are legal anywhere and are not enum members. */
+const VALUE_KEYWORDS = new Set(["true", "false", "inf", "nan"]);
+
+/**
+ * Semantic tokens for annotation names, option-body field names and the enum
+ * values assigned to them.
  */
 export class AnnotationSemanticTokensProvider
 	implements vscode.DocumentSemanticTokensProvider, vscode.Disposable
@@ -126,7 +156,7 @@ export class AnnotationSemanticTokensProvider
 			document.version,
 			document.getText(),
 		);
-		const pending = this.collect(model, registry);
+		const pending = this.collect(model, registry, document.getText());
 		if (token.isCancellationRequested) {
 			return undefined;
 		}
@@ -154,13 +184,20 @@ export class AnnotationSemanticTokensProvider
 
 	/**
 	 * Classifies every annotation name in the buffer.
+	 *
+	 * `text` is a parameter rather than a field on the model because the model
+	 * is cached per document version; holding the buffer on it would retain
+	 * every file ever highlighted, which is the leak this rewrite removed.
+	 *
 	 * @param model - Structural model of the buffer
 	 * @param registry - The annotation registry
+	 * @param text - The buffer's text, used only to read assigned values
 	 * @returns Unsorted tokens
 	 */
 	private collect(
 		model: ProtoDocumentModel,
 		registry: AnnotationRegistryImpl,
+		text: string,
 	): PendingToken[] {
 		const out: PendingToken[] = [];
 		const closure = importClosure(
@@ -207,6 +244,24 @@ export class AnnotationSemanticTokensProvider
 				type: "protoAnnotation",
 				modifiers,
 			});
+
+			// An option with no body message is assigned a value directly, and
+			// for the most-used options in a FHIR tree — field_behavior above
+			// all — that value is an enum member.
+			if (reference.accessors.length === 0) {
+				const accessorLength = reference.accessors.reduce(
+					(total, accessor) => total + accessor.length + 1,
+					0,
+				);
+				this.pushValueToken(
+					out,
+					text,
+					registry,
+					reference.end + accessorLength,
+					descriptor.type,
+					descriptor.namespace,
+				);
+			}
 		}
 
 		for (const field of model.bodyFields) {
@@ -224,6 +279,23 @@ export class AnnotationSemanticTokensProvider
 				type: resolved ? "protoAnnotationField" : "protoAnnotationFieldUnknown",
 				modifiers: resolved && isDeprecated(resolved.doc) ? ["deprecated"] : [],
 			});
+
+			if (descriptor && resolved && !resolved.messageFqn) {
+				// Resolved against the body that declares the field, not the
+				// annotation — they differ whenever the option body lives in
+				// another package.
+				const owner = registry.bodyAt(descriptor, field.path.slice(0, -1));
+				this.pushValueToken(
+					out,
+					text,
+					registry,
+					field.end,
+					resolved.type,
+					owner
+						? owner.fqn.slice(0, owner.fqn.lastIndexOf("."))
+						: descriptor.namespace,
+				);
+			}
 		}
 
 		// The `extend google.protobuf.*Options` block in this very file: the
@@ -241,6 +313,48 @@ export class AnnotationSemanticTokensProvider
 		}
 
 		return out;
+	}
+
+	/**
+	 * Adds a token for the enum value assigned at an offset, when the target
+	 * type is an enum and a bare identifier was written.
+	 *
+	 * A value that is not a member of that enum is marked unknown rather than
+	 * skipped: `= REQUIRE` instead of `= REQUIRED` is a compile error, and this
+	 * is the cheapest place to see it.
+	 *
+	 * @param out - Token list being built
+	 * @param text - The buffer's text
+	 * @param registry - The annotation registry
+	 * @param from - Offset just past the option or field name
+	 * @param type - Declared type of the thing being assigned
+	 * @param namespace - Package the type name resolves against
+	 */
+	private pushValueToken(
+		out: PendingToken[],
+		text: string,
+		registry: AnnotationRegistryImpl,
+		from: number,
+		type: string,
+		namespace: string,
+	): void {
+		const enumFqn = registry.resolveEnumFqn(type, namespace);
+		const values = enumFqn ? registry.enumValues(enumFqn) : undefined;
+		if (!values || values.length === 0) {
+			return;
+		}
+		const assigned = readAssignedIdent(text, from);
+		if (!assigned || VALUE_KEYWORDS.has(assigned.value)) {
+			return;
+		}
+		out.push({
+			start: assigned.start,
+			end: assigned.end,
+			type: values.includes(assigned.value)
+				? "protoAnnotationValue"
+				: "protoAnnotationValueUnknown",
+			modifiers: [],
+		});
 	}
 
 	/**

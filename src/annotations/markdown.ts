@@ -37,6 +37,54 @@ export function fieldType(field: AnnotationField): string {
 	return field.repeated ? `repeated ${field.type}` : field.type;
 }
 
+/** Enum values rendered inline before the list is elided. */
+const MAX_INLINE_ENUM_VALUES = 10;
+
+/**
+ * The namespace a field's type name resolves against: the package of the
+ * message that declares it, not the package of the annotation.
+ *
+ * These differ whenever an option body lives in a different file from the
+ * `extend` block — `store.v1.column` naming a `store.v1.ReferentialAction` from
+ * a body message in another package resolves only against the body's own
+ * namespace.
+ *
+ * @param messageFqn - Fully-qualified name of the declaring message
+ * @returns The package part, or an empty string when there is none
+ */
+export function namespaceOf(messageFqn: string): string {
+	const cut = messageFqn.lastIndexOf(".");
+	return cut < 0 ? "" : messageFqn.slice(0, cut);
+}
+
+/**
+ * Renders a type's closed value set, when it has one.
+ *
+ * This is the hint that turns `IdStrategy` from a name the reader has to go
+ * look up into something they can pick from where they are standing.
+ *
+ * @param type - Type name as written
+ * @param namespace - Package the name resolves against
+ * @param registry - The annotation registry
+ * @returns e.g. `` `ULID` · `UUID` ``, or undefined when the type is not an enum
+ */
+export function enumValueHint(
+	type: string,
+	namespace: string,
+	registry: AnnotationRegistryImpl,
+): string | undefined {
+	const fqn = registry.resolveEnumFqn(type, namespace);
+	const values = fqn ? registry.enumValues(fqn) : undefined;
+	if (!values || values.length === 0) {
+		return undefined;
+	}
+	const shown = values.slice(0, MAX_INLINE_ENUM_VALUES);
+	const rendered = shown.map((value) => `\`${value}\``).join(" · ");
+	return values.length > shown.length
+		? `${rendered} · _+${values.length - shown.length} more_`
+		: rendered;
+}
+
 /**
  * Human label for a target, e.g. `Method` renders as "rpc".
  * @param target - The extendee-derived target
@@ -88,14 +136,31 @@ export function renderAnnotationCard(
 
 	const body = registry.body(descriptor);
 	if (body && body.fields.length > 0) {
+		const namespace = namespaceOf(body.fqn);
 		lines.push("**Fields**");
 		lines.push("");
 		for (const field of body.fields) {
 			lines.push(
 				`- \`${field.name}\` — _${fieldType(field)}_${field.doc ? ` · ${field.doc}` : ""}`,
 			);
+			// An enum-typed field is the one case where the type name alone is
+			// not enough to write the value.
+			const hint = field.messageFqn
+				? undefined
+				: enumValueHint(field.type, namespace, registry);
+			if (hint) {
+				lines.push(`  - ${hint}`);
+			}
 		}
 		lines.push("");
+	} else {
+		// No body message: the option is assigned a value directly, so if that
+		// value is an enum its members belong on the card.
+		const hint = enumValueHint(descriptor.type, descriptor.namespace, registry);
+		if (hint) {
+			lines.push(`**Values** ${hint}`);
+			lines.push("");
+		}
 	}
 
 	if (descriptor.example) {
@@ -155,13 +220,18 @@ export function renderFieldCard(
 		lines.push("");
 	}
 
-	const values = field.messageFqn
+	// Resolved against the body that declares the field. Using the annotation's
+	// namespace missed every enum whose option body lives in another package.
+	const owner = registry.bodyAt(descriptor, path.slice(0, -1));
+	const hint = field.messageFqn
 		? undefined
-		: registry.enumValues(
-				registry.resolveEnumFqn(field.type, descriptor.namespace) ?? "",
+		: enumValueHint(
+				field.type,
+				owner ? namespaceOf(owner.fqn) : descriptor.namespace,
+				registry,
 			);
-	if (values && values.length > 0) {
-		lines.push(`**Values** ${values.map((v) => `\`${v}\``).join(", ")}`);
+	if (hint) {
+		lines.push(`**Values** ${hint}`);
 		lines.push("");
 	}
 
