@@ -1,32 +1,34 @@
 import * as vscode from "vscode";
-import { findProtoFiles } from "./utils/fileUtils";
 import {
 	collectTypeReferences,
 	flattenSymbols,
 	parseProtoDocument,
-	simpleName,
 } from "./utils/protoParser";
 
+const RE_PACKAGE = /^package\s+([A-Za-z0-9_.]+)\s*;/m;
+
 /**
- * Provides rename for message, service, enum, and rpc names; updates all references in the workspace.
+ * Provides rename for message, service, enum, and rpc names.
+ *
+ * Scope is deliberately limited to the current file. The previous implementation
+ * matched symbols workspace-wide on their *simple* name (the last dot-segment),
+ * which is unsafe in any repo that reuses type names across packages: on
+ * protobuf-fhir 76% of top-level type names are defined in more than one file
+ * (`SubjectChoice` in 87 of them), so renaming one `Address` rewrote every
+ * `Address` across every FHIR version at once.
+ *
+ * Cross-file rename returns once the symbol index resolves fully-qualified names
+ * (file package + import resolution) instead of simple names.
  */
 export class ProtoRenameProvider implements vscode.RenameProvider {
 	async provideRenameEdits(
 		document: vscode.TextDocument,
 		position: vscode.Position,
 		newName: string,
-		token: vscode.CancellationToken,
+		_token: vscode.CancellationToken,
 	): Promise<vscode.WorkspaceEdit | null> {
-		const symbols = parseProtoDocument(document);
-		const flat = flattenSymbols(symbols);
-		const symbol = flat.find((s) => s.selectionRange.contains(position));
-		if (
-			!symbol ||
-			(symbol.kind !== "message" &&
-				symbol.kind !== "service" &&
-				symbol.kind !== "enum" &&
-				symbol.kind !== "rpc")
-		) {
+		const symbol = this.getRenamableSymbolAt(document, position);
+		if (!symbol) {
 			return null;
 		}
 		if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(newName)) {
@@ -34,79 +36,61 @@ export class ProtoRenameProvider implements vscode.RenameProvider {
 		}
 
 		const oldName = symbol.name;
-		const targetSimple = simpleName(oldName);
-		const locations: vscode.Location[] = [];
+		const filePackage = document.getText().match(RE_PACKAGE)?.[1] ?? "";
 
-		// Definition (current file)
-		locations.push(new vscode.Location(document.uri, symbol.selectionRange));
-
-		// References in current file
-		const refs = collectTypeReferences(document);
-		for (const ref of refs) {
-			if (
-				simpleName(ref.typeName) === targetSimple &&
-				!ref.range.contains(position)
-			) {
-				locations.push(new vscode.Location(document.uri, ref.range));
+		/**
+		 * A reference belongs to this rename only when it names *this* type:
+		 * either unqualified and identical, or qualified with this file's own
+		 * package. A qualified name from any other package is a different type
+		 * that merely shares a simple name.
+		 */
+		const matchesTarget = (typeName: string): boolean => {
+			const bare = typeName.replace(/^\./, "");
+			if (bare === oldName) {
+				return true;
 			}
-		}
-
-		// Other files: definitions and references
-		const allProto = await findProtoFiles();
-		for (const uri of allProto) {
-			if (token.isCancellationRequested) {
-				break;
-			}
-			try {
-				const doc = await vscode.workspace.openTextDocument(uri);
-				const otherSymbols = parseProtoDocument(doc);
-				const otherFlat = flattenSymbols(otherSymbols);
-				for (const s of otherFlat) {
-					if (s.kind !== "rpc" && simpleName(s.name) === targetSimple) {
-						const already = locations.some(
-							(l) =>
-								l.uri.toString() === uri.toString() &&
-								l.range.isEqual(s.selectionRange),
-						);
-						if (!already) {
-							locations.push(new vscode.Location(uri, s.selectionRange));
-						}
-					}
-				}
-				if (uri.toString() !== document.uri.toString()) {
-					const refsOther = collectTypeReferences(doc);
-					for (const ref of refsOther) {
-						if (simpleName(ref.typeName) === targetSimple) {
-							locations.push(new vscode.Location(uri, ref.range));
-						}
-					}
-				}
-			} catch {
-				// skip
-			}
-		}
+			return filePackage !== "" && bare === `${filePackage}.${oldName}`;
+		};
 
 		const edit = new vscode.WorkspaceEdit();
-		for (const loc of locations) {
-			const doc = await vscode.workspace.openTextDocument(loc.uri);
-			const text = doc.getText(loc.range);
+		edit.replace(document.uri, symbol.selectionRange, newName);
+
+		for (const ref of collectTypeReferences(document)) {
+			if (!matchesTarget(ref.typeName)) {
+				continue;
+			}
+			if (ref.range.isEqual(symbol.selectionRange)) {
+				continue;
+			}
+			// Preserve any package qualification already written at the call site.
+			const text = document.getText(ref.range);
 			const newText = text.includes(".")
 				? text.slice(0, text.lastIndexOf(".") + 1) + newName
 				: newName;
-			edit.replace(loc.uri, loc.range, newText);
+			edit.replace(document.uri, ref.range, newText);
 		}
+
 		return edit;
 	}
 
-	async prepareRename?(
+	async prepareRename(
 		document: vscode.TextDocument,
 		position: vscode.Position,
 		_token: vscode.CancellationToken,
-	): Promise<
-		vscode.Range | { range: vscode.Range; placeholder: string } | null
-	> {
-		const symbols = parseProtoDocument(document);
-		const flat = flattenSymbols(symbols);
+	): Promise<{ range: vscode.Range; placeholder: string }> {
+		const symbol = this.getRenamableSymbolAt(document, position);
+		if (!symbol) {
+			// Thrown message surfaces in the rename input box.
+			throw new Error("This element cannot be renamed.");
+		}
+		return { range: symbol.selectionRange, placeholder: symbol.name };
+	}
+
+	private getRenamableSymbolAt(
+		document: vscode.TextDocument,
+		position: vscode.Position,
+	) {
+		const flat = flattenSymbols(parseProtoDocument(document));
 		const symbol = flat.find((s) => s.selectionRange.contains(position));
 		if (
 			!symbol ||
@@ -115,8 +99,8 @@ export class ProtoRenameProvider implements vscode.RenameProvider {
 				symbol.kind !== "enum" &&
 				symbol.kind !== "rpc")
 		) {
-			return null;
+			return undefined;
 		}
-		return { range: symbol.selectionRange, placeholder: symbol.name };
+		return symbol;
 	}
 }
