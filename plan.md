@@ -208,7 +208,14 @@ it against the suite below.
       than fail when that corpus is absent. Unit tests are typechecked by `tsc` via `@types/bun`,
       not merely executed. CI now runs them.*
 - [ ] **2.1** Index core — `protoIndex`, `parser`, `store`, `walk`, `strings`.
-- [ ] **2.2** Annotation extraction — `extractor`, `registry`, `scan`.
+- [~] **2.2** Annotation extraction — `extractor`, `registry`, `scan`. *`extractor.test.ts` landed
+      (712 lines, 50 tests) and found four real bugs, all fixed: leading-dot type references and
+      extendees matched nothing and were dropped silently; `ExtractedFile.imports` was always empty
+      because `RE_IMPORT` ran on the string-blanked line; and `leadingComment` ate the tab that marks
+      a godoc example, truncating the example and leaking code into the prose of 17 annotations.
+      `registry.test.ts` and `scan.test.ts` still to write. Single-line `extend`/`message`/`enum`
+      blocks remain a documented limitation — the scanner is line-based and `buf format` always
+      expands them.*
 - [ ] **2.3** Buffer model — `document`, `resolve`.
 - [ ] **2.4** Completion — `completion`.
 - [ ] **2.5** Highlighting, hover, diagnostics — `semanticTokens`, `markdown`, `hover`, `diagnostics`.
@@ -393,3 +400,7 @@ is settled.
 - 2026-09-13 — Phase 1b committed. Phase 2 chosen: regression suite over the Rust sidecar, with the
   reasoning recorded above so the decision is not re-litigated from memory. Harness (2.0) landed and
   wired into CI; 2.1–2.8 dispatched as eight concurrent tracks, one per module, tests only.
+- 2026-09-13 — All eight tracks died to a session limit. Track 2.2 had written `extractor.test.ts`
+  first; it found four real extractor bugs, now fixed, and the suite is green at 48 pass / 2 skip.
+  Seven tracks re-dispatched. Lesson for next time: the tracks that wrote a file early survived the
+  limit with useful work, so tell each track to land one test file before broadening.
