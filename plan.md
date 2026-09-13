@@ -184,6 +184,44 @@ Both items came from using the extension on this repo, not from the original pla
       now **generated** from `SEMANTIC_TOKEN_*_CONTRIBUTION` in `support.ts` rather than pasted, since
       "paste verbatim" is exactly what drifts.*
 
+### Phase 2 — the regression suite
+
+Chosen over the Rust sidecar on 2026-09-13. The reasoning, so it does not have to be re-derived:
+
+- The sidecar's *only* unique value is an enforceable allocator cap and process isolation. It fixes
+  neither the VS Code API leak nor process-spawn cost, and both of those are already fixed in
+  TypeScript.
+- The measured position is no longer the one that motivated it. Heap retained for the annotation
+  scan is 39.3 MB against a 150 MB soft cap. RSS is 157.6 MB, which is past the soft cap and worth
+  watching, but it is not the 60 GB that started this.
+- Meanwhile the rewrite had 17,830 lines of source against 157 lines of test, and CI ran `lint`,
+  `compile` and `package` but never `test`. Every measurement in the Results table was reproduced
+  from throwaway scratch scripts that were never committed. A sidecar is a rewrite of the index;
+  rewriting it with nothing verifying behaviour stayed identical is the wrong order.
+
+Rust is therefore deferred, not rejected. Revisit when RSS becomes a real complaint again, and build
+it against the suite below.
+
+- [x] **2.0** Unit test harness. *`bun test`, with `vscode` resolved to a stub via `mock.module`
+      preloaded from `bunfig.toml`. Fixtures build registries from the real protobuf-fhir tree and
+      buf module cache rather than from invented protos, cached once per process, and skip rather
+      than fail when that corpus is absent. Unit tests are typechecked by `tsc` via `@types/bun`,
+      not merely executed. CI now runs them.*
+- [ ] **2.1** Index core — `protoIndex`, `parser`, `store`, `walk`, `strings`.
+- [ ] **2.2** Annotation extraction — `extractor`, `registry`, `scan`.
+- [ ] **2.3** Buffer model — `document`, `resolve`.
+- [ ] **2.4** Completion — `completion`.
+- [ ] **2.5** Highlighting, hover, diagnostics — `semanticTokens`, `markdown`, `hover`, `diagnostics`.
+- [ ] **2.6** Proto view — `protoScanner`, `protoView`.
+- [ ] **2.7** Module and dependency resolution — `moduleGraph`, `bufConfigReader`,
+      `protoImportRoots`, `protoParser`.
+- [ ] **2.8** Lint pipeline — `linterUtils`, `linterProvider`.
+
+**Ownership during 2.1–2.8:** each track owns only its own test files. Product code under `src/` is
+off-limits to the tracks; a track that finds a bug writes a `test.skip` with the expected behaviour
+and reports it, and the integrator fixes it. This keeps eight concurrent tracks from colliding, and
+keeps a suspected bug from being silently enshrined as expected behaviour.
+
 ### Integration
 
 - [x] **I.1** Register new providers in `extension.ts`; wire the index lifecycle. *Done.*
@@ -352,3 +390,6 @@ is settled.
   and zero `protoAnnotationValueUnknown`, which also says the generated tree has no enum typos.
   Typo fixtures (`REQUIRE`, lowercase `optional`, `IGNORE_NEVER`) all flag; int- and string-valued
   fields correctly get no token. Harness: `tokens.js`, `sweep.js`.
+- 2026-09-13 — Phase 1b committed. Phase 2 chosen: regression suite over the Rust sidecar, with the
+  reasoning recorded above so the decision is not re-litigated from memory. Harness (2.0) landed and
+  wired into CI; 2.1–2.8 dispatched as eight concurrent tracks, one per module, tests only.

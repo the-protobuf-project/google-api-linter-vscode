@@ -67,15 +67,27 @@ export const ALL_TARGETS: readonly AnnotationTarget[] = Object.freeze([
 
 const RE_PACKAGE = /^\s*package\s+([A-Za-z0-9_.]+)\s*;/;
 const RE_IMPORT = /^\s*import\s+(?:public\s+|weak\s+)?"([^"]+)"\s*;/;
-const RE_EXTEND = /^\s*extend\s+([A-Za-z_][\w.]*)\s*\{?/;
+// The leading `.` is optional for the same reason as in RE_FIELD: proto spells a
+// fully-qualified extendee `.google.protobuf.FieldOptions`. The normalisation
+// below already strips `^\.?google\.protobuf\.`, so the dot was always expected
+// here -- without it that branch was unreachable and the whole extend block,
+// with every annotation in it, was skipped.
+const RE_EXTEND = /^\s*extend\s+(\.?[A-Za-z_][\w.]*)\s*\{?/;
 const RE_MESSAGE = /^\s*message\s+([A-Za-z_]\w*)\s*\{?/;
 const RE_ENUM = /^\s*enum\s+([A-Za-z_]\w*)\s*\{?/;
 const RE_ONEOF = /^\s*oneof\s+([A-Za-z_]\w*)\s*\{?/;
 const RE_SERVICE = /^\s*service\s+([A-Za-z_]\w*)\s*\{?/;
 // The trailing `;`-or-`[` alternation keeps fields whose option brackets are
 // wrapped onto following lines, a shape `buf format` produces routinely.
+//
+// The type accepts an optional leading `.`: proto spells a fully-qualified
+// reference `.google.protobuf.Duration`, rooted at the global namespace. Without
+// it such a field matches nothing and the annotation is dropped outright rather
+// than mis-parsed -- no hover, no completion, no highlighting, and no error to
+// say why. `resolveTypeFqn` and `resolveEnumFqn` already strip the dot, so the
+// rest of the pipeline expects to see one.
 const RE_FIELD =
-	/^\s*(?:(optional|required|repeated)\s+)?(map\s*<[^>]*>|[A-Za-z_][\w.]*)\s+([A-Za-z_]\w*)\s*=\s*(\d+)\s*(?:;|\[)/;
+	/^\s*(?:(optional|required|repeated)\s+)?(map\s*<[^>]*>|\.?[A-Za-z_][\w.]*)\s+([A-Za-z_]\w*)\s*=\s*(\d+)\s*(?:;|\[)/;
 const RE_ENUM_VALUE = /^\s*([A-Za-z_]\w*)\s*=\s*(-?\d+)\s*(?:;|\[)/;
 
 /** Keywords that look like a field declaration but are not one. */
@@ -186,7 +198,13 @@ function leadingComment(lines: readonly string[], index: number): string[] {
 		if (!trimmed.startsWith("//")) {
 			break;
 		}
-		out.unshift(trimmed.replace(/^\/\/+\s?/, ""));
+		// A single space after the marker, never `\s`: godoc -- and the corpus,
+		// see `cache/v1/annotations.proto` -- marks example code by indenting it
+		// one tab past the marker. Eating that tab flattened the example's
+		// outermost lines to column zero, so `splitComment` read them as prose
+		// and the example survived as a fragment missing its opening and
+		// closing lines.
+		out.unshift(trimmed.replace(/^\/\/+ ?/, ""));
 	}
 	return out;
 }
@@ -202,7 +220,10 @@ function splitComment(commentLines: readonly string[]): SplitComment {
 	const prose: string[] = [];
 	const code: string[] = [];
 	for (const line of commentLines) {
-		if (/^(\t| {2,})\S/.test(line)) {
+		// The indent may be followed by further indentation -- a tab then two
+		// spaces is one nested line of an example -- so look past it for content
+		// rather than demanding a non-space immediately.
+		if (/^(?:\t| {2,})\s*\S/.test(line)) {
 			code.push(line.replace(/^(\t| {4}| {2})/, ""));
 		} else if (code.length > 0 && line.trim() === "") {
 			code.push("");
@@ -334,9 +355,17 @@ export function extractAnnotations(
 					packageName = pkg[1];
 				}
 			}
-			const imp = RE_IMPORT.exec(code);
-			if (imp) {
-				imports.push(imp[1]);
+			// Matched against the raw line, not `code`: stripLine blanks every
+			// string body to `""` so that a brace inside a literal cannot shift
+			// the depth, which also erases the one thing an import statement
+			// carries. Gating on the stripped line still starting with `import`
+			// keeps a commented-out or trailing-comment import from matching,
+			// since stripLine has already removed those.
+			if (/^\s*import\b/.test(code)) {
+				const imp = RE_IMPORT.exec(raw);
+				if (imp) {
+					imports.push(imp[1]);
+				}
 			}
 
 			const extend = RE_EXTEND.exec(code);

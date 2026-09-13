@@ -12,6 +12,8 @@
  * `range.start.line` is reading the same field the extension does.
  */
 
+import * as fsp from "node:fs/promises";
+
 /** Mirrors `vscode.Position`. */
 export class Position {
 	constructor(
@@ -21,6 +23,11 @@ export class Position {
 	isEqual(other: Position): boolean {
 		return this.line === other.line && this.character === other.character;
 	}
+}
+
+/** Position ordering, the one comparison `Range.contains` needs. */
+function isBefore(a: Position, b: Position): boolean {
+	return a.line < b.line || (a.line === b.line && a.character < b.character);
 }
 
 /** Mirrors `vscode.Range`, including the two-Position constructor overload. */
@@ -43,6 +50,12 @@ export class Range {
 			);
 			this.end = new Position(endLine ?? 0, endCharacter ?? 0);
 		}
+	}
+	/** True when `other` lies inside this range, both ends included. */
+	contains(other: Position | Range): boolean {
+		const from = other instanceof Range ? other.start : other;
+		const to = other instanceof Range ? other.end : other;
+		return !isBefore(from, this.start) && !isBefore(this.end, to);
 	}
 }
 
@@ -257,6 +270,26 @@ export const workspace = {
 	}),
 	workspaceFolders: undefined as unknown,
 	onDidChangeConfiguration: () => ({ dispose() {} }),
+	/**
+	 * Finds nothing by default. Globbing is the extension host's job, so a test
+	 * that needs discovery assigns its own walker here and restores it after.
+	 */
+	findFiles: async (
+		_include: string,
+		_exclude?: string,
+		_maxResults?: number,
+	): Promise<Uri[]> => [],
+	/** Owns nothing by default; assign per test to bound upward config walks. */
+	getWorkspaceFolder: (_uri: Uri): { uri: Uri } | undefined => undefined,
+	/** Backed by the real filesystem: the callers only ever read file uris. */
+	fs: {
+		readFile: async (uri: Uri): Promise<Uint8Array> =>
+			new Uint8Array(await fsp.readFile(uri.fsPath)),
+		stat: async (uri: Uri): Promise<{ type: number; size: number }> => {
+			const stat = await fsp.stat(uri.fsPath);
+			return { type: stat.isDirectory() ? 2 : 1, size: stat.size };
+		},
+	},
 };
 
 export const window = {
