@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "google-api-linter",
+      "name": "protobuf-aip-linter",
       "dependencies": {
         "fast-glob": "^3.3.3",
         "yaml": "^2.9.1",

@@ -100,8 +100,18 @@ export class MarkdownString {
 	}
 }
 
-export class ThemeIcon {
+/** Mirrors `vscode.ThemeColor`: an id resolved against the active theme. */
+export class ThemeColor {
 	constructor(readonly id: string) {}
+}
+
+export class ThemeIcon {
+	/** The built-in folder icon, as the real module exposes it. */
+	static readonly Folder = new ThemeIcon("folder");
+	constructor(
+		readonly id: string,
+		readonly color?: ThemeColor,
+	) {}
 }
 
 export class CompletionItem {
@@ -281,6 +291,9 @@ export const workspace = {
 	): Promise<Uri[]> => [],
 	/** Owns nothing by default; assign per test to bound upward config walks. */
 	getWorkspaceFolder: (_uri: Uri): { uri: Uri } | undefined => undefined,
+	/** No folder is open, so the real module's fallback — the full path — applies. */
+	asRelativePath: (target: Uri | string, _includeFolder?: boolean): string =>
+		typeof target === "string" ? target : target.fsPath,
 	/** Backed by the real filesystem: the callers only ever read file uris. */
 	fs: {
 		readFile: async (uri: Uri): Promise<Uint8Array> =>

@@ -37,7 +37,7 @@ export const fetchJson = <T>(
 	return new Promise((resolve, reject) => {
 		// Add User-Agent header for GitHub API
 		const requestHeaders = {
-			"User-Agent": "vscode-google-api-linter",
+			"User-Agent": "vscode-protobuf-aip-linter",
 			...headers,
 		};
 
@@ -97,7 +97,7 @@ export const downloadFile = (
 				.get(
 					redirectUrl,
 					{
-						headers: { "User-Agent": "vscode-google-api-linter" },
+						headers: { "User-Agent": "vscode-protobuf-aip-linter" },
 					},
 					(response) => {
 						if (response.statusCode === 302 || response.statusCode === 301) {

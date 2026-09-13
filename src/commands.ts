@@ -425,8 +425,8 @@ export const createConfigCommand = () => {
 };
 
 /** Minimal content for workspace.protobuf.yaml (enables extension and proto paths). */
-const WORKSPACE_PROTOBUF_YAML_TEMPLATE = `# Proto workspace config (Google API Linter)
-# See: https://github.com/the-protobuf-project/google-api-linter-vscode
+const WORKSPACE_PROTOBUF_YAML_TEMPLATE = `# Proto workspace config (Protobuf AIP Linter)
+# See: https://github.com/the-protobuf-project/protobuf-aip-linter-vscode
 
 # Optional: list of directories containing .proto files (default: this directory)
 # proto_path: .
@@ -484,7 +484,7 @@ export const createRestartCommand = (
 		async () => {
 			diagnosticCollection.clear();
 			vscode.window.showInformationMessage(
-				"Google API Linter restarted. Re-linting all open proto files...",
+				"Protobuf AIP Linter restarted. Re-linting all open proto files...",
 			);
 
 			for (const editor of vscode.window.visibleTextEditors) {
@@ -494,7 +494,7 @@ export const createRestartCommand = (
 			}
 
 			vscode.window.showInformationMessage(
-				"Google API Linter restart complete!",
+				"Protobuf AIP Linter restart complete!",
 			);
 		},
 	);
@@ -609,7 +609,7 @@ export const createUpdateGoogleapisCommitCommand = () => {
 };
 
 /**
- * Creates the command to reinstall all Google API Linter dependencies.
+ * Creates the command to reinstall all Protobuf AIP Linter dependencies.
  * Deletes the .gapi directory and reinstalls api-linter, googleapis, and protobuf.
  * @param binaryManager - The binary manager instance
  * @returns Disposable command registration
@@ -635,7 +635,7 @@ export const createReinstallCommand = (binaryManager: BinaryManager) => {
 				await vscode.window.withProgress(
 					{
 						location: vscode.ProgressLocation.Notification,
-						title: "Reinstalling Google API Linter dependencies",
+						title: "Reinstalling Protobuf AIP Linter dependencies",
 						cancellable: false,
 					},
 					async (progress) => {
@@ -658,7 +658,7 @@ export const createReinstallCommand = (binaryManager: BinaryManager) => {
 						await binaryManager.ensureProtobuf();
 
 						vscode.window.showInformationMessage(
-							"Successfully reinstalled all Google API Linter dependencies!",
+							"Successfully reinstalled all Protobuf AIP Linter dependencies!",
 						);
 					},
 				);

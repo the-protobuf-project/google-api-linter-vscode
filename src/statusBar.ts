@@ -35,16 +35,16 @@ export function registerStatusBar(
 		const total = errorCount + warningCount;
 		if (total > 0) {
 			statusBarItem.text = `$(symbol-misc) Proto: ${errorCount} error(s), ${warningCount} warning(s)`;
-			statusBarItem.tooltip = "Google API Linter: click to open Proto view";
+			statusBarItem.tooltip = "Protobuf AIP Linter: click to open Proto view";
 		} else {
 			statusBarItem.text = "$(symbol-misc) Proto";
-			statusBarItem.tooltip = "Google API Linter: click to open Proto view";
+			statusBarItem.tooltip = "Protobuf AIP Linter: click to open Proto view";
 		}
 		statusBarItem.show();
 	};
 
 	statusBarItem.command = {
-		command: "workbench.view.extension.google-api-linter",
+		command: "workbench.view.extension.protobuf-aip-linter",
 		title: "Open Proto view",
 	};
 

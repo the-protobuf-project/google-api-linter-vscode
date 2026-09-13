@@ -1,13 +1,13 @@
 {
-	"name": "google-api-linter",
-	"displayName": "Google API Linter",
-	"description": "Google API Linter for VS Code - Production Grade API Design",
+	"name": "protobuf-aip-linter",
+	"displayName": "Protobuf AIP Linter",
+	"description": "Protobuf AIP Linter for VS Code - Production Grade API Design",
 	"version": "1.3.0",
 	"publisher": "the-protobuf-project",
 	"icon": "picon.png",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/the-protobuf-project/google-api-linter-vscode"
+		"url": "https://github.com/the-protobuf-project/protobuf-aip-linter-vscode"
 	},
 	"packageManager": "bun@1.3.0",
 	"engines": {
@@ -50,7 +50,7 @@
 			}
 		],
 		"configuration": {
-			"title": "Google API Linter",
+			"title": "Protobuf AIP Linter",
 			"properties": {
 				"gapi.binaryPath": {
 					"type": "string",
@@ -176,25 +176,25 @@
 		},
 		"configurationDefaults": {
 			"[proto3]": {
-				"editor.defaultFormatter": "the-protobuf-project.google-api-linter",
+				"editor.defaultFormatter": "the-protobuf-project.protobuf-aip-linter",
 				"editor.semanticHighlighting.enabled": true
 			},
 			"[protobuf]": {
-				"editor.defaultFormatter": "the-protobuf-project.google-api-linter",
+				"editor.defaultFormatter": "the-protobuf-project.protobuf-aip-linter",
 				"editor.semanticHighlighting.enabled": true
 			}
 		},
 		"viewsContainers": {
 			"activitybar": [
 				{
-					"id": "google-api-linter",
+					"id": "protobuf-aip-linter",
 					"title": "Proto",
 					"icon": "picon.png"
 				}
 			]
 		},
 		"views": {
-			"google-api-linter": [
+			"protobuf-aip-linter": [
 				{
 					"id": "googleApiLinter.views.proto",
 					"name": "API Linter",
@@ -205,39 +205,39 @@
 		"commands": [
 			{
 				"command": "googleApiLinter.lintCurrentFile",
-				"title": "Google API Linter: Lint Current File"
+				"title": "Protobuf AIP Linter: Lint Current File"
 			},
 			{
 				"command": "googleApiLinter.lintWorkspace",
-				"title": "Google API Linter: Lint All Proto Files in Workspace"
+				"title": "Protobuf AIP Linter: Lint All Proto Files in Workspace"
 			},
 			{
 				"command": "googleApiLinter.formatAllProtos",
-				"title": "Google API Linter: Format All Proto Files"
+				"title": "Protobuf AIP Linter: Format All Proto Files"
 			},
 			{
 				"command": "googleApiLinter.createConfig",
-				"title": "Google API Linter: Create Config File"
+				"title": "Protobuf AIP Linter: Create Config File"
 			},
 			{
 				"command": "googleApiLinter.restart",
-				"title": "Google API Linter: Restart"
+				"title": "Protobuf AIP Linter: Restart"
 			},
 			{
 				"command": "googleApiLinter.updateGoogleapisCommit",
-				"title": "Google API Linter: Update googleapis Commit"
+				"title": "Protobuf AIP Linter: Update googleapis Commit"
 			},
 			{
 				"command": "googleApiLinter.reinstallAll",
-				"title": "Google API Linter: Reinstall All Dependencies"
+				"title": "Protobuf AIP Linter: Reinstall All Dependencies"
 			},
 			{
 				"command": "googleApiLinter.refreshProtoView",
-				"title": "Google API Linter: Refresh Proto View"
+				"title": "Protobuf AIP Linter: Refresh Proto View"
 			},
 			{
 				"command": "googleApiLinter.initWorkspace",
-				"title": "Google API Linter: Initialize Proto Workspace"
+				"title": "Protobuf AIP Linter: Initialize Proto Workspace"
 			},
 			{
 				"command": "googleApiLinter.revealLocation",
@@ -258,7 +258,7 @@
 			},
 			{
 				"command": "googleApiLinter.reportIssue",
-				"title": "Google API Linter: Report Issue on GitHub",
+				"title": "Protobuf AIP Linter: Report Issue on GitHub",
 				"icon": "$(github)"
 			}
 		],

@@ -460,7 +460,7 @@ export const parseGenericOutput = (
 					message.trim(),
 					vscode.DiagnosticSeverity.Error,
 				);
-				diagnostic.source = "google-api-linter (syntax)";
+				diagnostic.source = "protobuf-aip-linter (syntax)";
 				diagnostics.push(diagnostic);
 			}
 		}
@@ -521,7 +521,7 @@ export function parseSyntaxErrorsForFile(
 			message,
 			vscode.DiagnosticSeverity.Error,
 		);
-		diagnostic.source = "google-api-linter (syntax)";
+		diagnostic.source = "protobuf-aip-linter (syntax)";
 		diagnostics.push(diagnostic);
 	}
 	return diagnostics;
@@ -597,7 +597,7 @@ const createDiagnosticFromProblem = (
 		vscode.DiagnosticSeverity.Error,
 	);
 
-	diagnostic.source = "google-api-linter";
+	diagnostic.source = "protobuf-aip-linter";
 
 	// Use configurable documentation endpoint
 	const config = vscode.workspace.getConfiguration("gapi");

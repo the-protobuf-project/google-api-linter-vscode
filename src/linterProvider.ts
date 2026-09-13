@@ -18,7 +18,7 @@ import {
 const WORKSPACE_SYNTAX_DEBOUNCE_MS = 500;
 
 /** Source string for diagnostics produced by the `buf build` syntax check. */
-const SYNTAX_DIAGNOSTIC_SOURCE = "google-api-linter (syntax)";
+const SYNTAX_DIAGNOSTIC_SOURCE = "protobuf-aip-linter (syntax)";
 
 /** Matches `file:line:col: message`, with an optional Go log timestamp prefix. */
 const SYNTAX_ERROR_REGEX =
@@ -71,7 +71,7 @@ export class ApiLinterProvider {
 		this.outputChannel = outputChannel;
 		this.binaryManager = new BinaryManager(outputChannel);
 		this.syntaxDiagnosticCollection =
-			vscode.languages.createDiagnosticCollection("google-api-linter-syntax");
+			vscode.languages.createDiagnosticCollection("protobuf-aip-linter-syntax");
 	}
 
 	/** Exposes the binary manager for extension commands (reinstall, proto view). */
@@ -161,7 +161,7 @@ export class ApiLinterProvider {
 					this.outputChannel.appendLine(`Error stack: ${error.stack}`);
 				}
 				if (!silent) {
-					vscode.window.showErrorMessage(`Google API Linter error: ${error}`);
+					vscode.window.showErrorMessage(`Protobuf AIP Linter error: ${error}`);
 				}
 				this.diagnosticCollection.set(document.uri, []);
 			}
@@ -174,7 +174,7 @@ export class ApiLinterProvider {
 				await vscode.window.withProgress(
 					{
 						location: vscode.ProgressLocation.Notification,
-						title: "Google API Linter",
+						title: "Protobuf AIP Linter",
 						cancellable: false,
 					},
 					async (progress) => {
@@ -362,7 +362,7 @@ export class ApiLinterProvider {
 			await vscode.window.withProgress(
 				{
 					location: vscode.ProgressLocation.Notification,
-					title: "Google API Linter",
+					title: "Protobuf AIP Linter",
 					cancellable: false,
 				},
 				async (progress) => {
@@ -409,7 +409,7 @@ export class ApiLinterProvider {
 			// One whole-workspace `buf build`, not one per file.
 			this.scheduleWorkspaceSyntaxCheck();
 			vscode.window.showInformationMessage(
-				`Google API Linter: workspace linting completed (${total} file(s)).`,
+				`Protobuf AIP Linter: workspace linting completed (${total} file(s)).`,
 			);
 		} finally {
 			this.workspaceLintInProgress = false;

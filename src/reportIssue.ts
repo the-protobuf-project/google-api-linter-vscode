@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
 const FALLBACK_ISSUES_NEW =
-	"https://github.com/the-protobuf-project/google-api-linter-vscode/issues/new";
+	"https://github.com/the-protobuf-project/protobuf-aip-linter-vscode/issues/new";
 
 function githubIssuesNewUrl(repoUrl: string): string | null {
 	try {
@@ -52,7 +52,7 @@ export function registerReportIssueCommand(
 			"",
 			"### Logs (optional)",
 			"",
-			"**View → Output → Google API Linter** — paste relevant lines here.",
+			"**View → Output → Protobuf AIP Linter** — paste relevant lines here.",
 			"",
 		].join("\n");
 

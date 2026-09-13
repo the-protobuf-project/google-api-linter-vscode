@@ -1,4 +1,4 @@
-# Google API Linter for VS Code
+# Protobuf AIP Linter for VS Code
 
 ## Features
 
@@ -145,12 +145,12 @@ Provides contextual information:
 1. **From VS Code Marketplace**
    - Open VS Code
    - Go to Extensions (Cmd+Shift+X / Ctrl+Shift+X)
-   - Search for "Google API Linter"
+   - Search for "Protobuf AIP Linter"
    - Click Install
 
 2. **From VSIX File**
    ```bash
-   code --install-extension google-api-linter-1.0.0.vsix
+   code --install-extension protobuf-aip-linter-1.0.0.vsix
    ```
 
 ## Configuration
@@ -272,13 +272,13 @@ The extension activates when a `.proto` file is present or when `workspace.proto
 
 Access commands via Command Palette (Cmd+Shift+P / Ctrl+Shift+P):
 
-- **Google API Linter: Lint Current File** - Lint the currently open proto file
-- **Google API Linter: Lint All Proto Files in Workspace** - Lint all `.proto` files in workspace
-- **Google API Linter: Create Config File** - Generate a `.api-linter.yaml` template
-- **Google API Linter: Initialize Proto Workspace** - Create `workspace.protobuf.yaml` in the workspace (or in the chosen folder for multi-root)
-- **Google API Linter: Update googleapis Commit** - Download specific googleapis commit to workspace `.gapi/`
-- **Google API Linter: Restart** - Restart the linter (useful after config changes)
-- **Google API Linter: Refresh Proto View** - Refresh the Proto tree view
+- **Protobuf AIP Linter: Lint Current File** - Lint the currently open proto file
+- **Protobuf AIP Linter: Lint All Proto Files in Workspace** - Lint all `.proto` files in workspace
+- **Protobuf AIP Linter: Create Config File** - Generate a `.api-linter.yaml` template
+- **Protobuf AIP Linter: Initialize Proto Workspace** - Create `workspace.protobuf.yaml` in the workspace (or in the chosen folder for multi-root)
+- **Protobuf AIP Linter: Update googleapis Commit** - Download specific googleapis commit to workspace `.gapi/`
+- **Protobuf AIP Linter: Restart** - Restart the linter (useful after config changes)
+- **Protobuf AIP Linter: Refresh Proto View** - Refresh the Proto tree view
 
 **Formatting**: Proto files are formatted automatically when you save (if `gapi.formatOnSave` is true). Choose the formatter with `gapi.formatter`: **buf** ([Buf format](https://buf.build/docs/format/)), **clang-format** ([ClangFormat for Protobuf](https://clang.llvm.org/docs/ClangFormat.html)), or **simple** (built-in indent). You can also use **Format Document** (or your format shortcut) anytime.
 
@@ -385,7 +385,7 @@ The extension automatically downloads the binary on first use. If you see this e
 **Solution**:
 The extension automatically downloads googleapis on first use. If imports still fail:
 1. Check that `~/.gapi/googleapis/` exists and contains proto files
-2. For workspace-specific googleapis version, run: **Google API Linter: Update googleapis Commit**
+2. For workspace-specific googleapis version, run: **Protobuf AIP Linter: Update googleapis Commit**
 3. Manually add proto paths if needed:
    ```json
    {
@@ -407,8 +407,8 @@ If linting is slow or causes lag:
 
 ```bash
 # Clone repository
-git clone https://github.com/the-protobuf-project/google-api-linter-vscode.git
-cd google-api-linter-vscode
+git clone https://github.com/the-protobuf-project/protobuf-aip-linter-vscode.git
+cd protobuf-aip-linter-vscode
 
 # Install dependencies
 bun install
@@ -420,7 +420,7 @@ bun run compile
 bun run package
 
 # Install locally
-code --install-extension google-api-linter-1.0.0.vsix
+code --install-extension protobuf-aip-linter-1.0.0.vsix
 ```
 
 ### Publishing to the Marketplace
@@ -488,12 +488,12 @@ This project is licensed under the Apache License 2.0. See [LICENSE.md](LICENSE.
 
 ## Resources
 
-- [Google API Linter](https://github.com/googleapis/api-linter)
+- [Protobuf AIP Linter](https://github.com/googleapis/api-linter)
 - [Google API Design Guide](https://cloud.google.com/apis/design)
 - [API Improvement Proposals (AIPs)](https://google.aip.dev/)
 - [Protocol Buffers](https://protobuf.dev/)
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/the-protobuf-project/google-api-linter-vscode/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/the-protobuf-project/google-api-linter-vscode/discussions)
+- **Issues**: [GitHub Issues](https://github.com/the-protobuf-project/protobuf-aip-linter-vscode/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/the-protobuf-project/protobuf-aip-linter-vscode/discussions)

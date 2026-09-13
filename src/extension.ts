@@ -78,7 +78,7 @@ async function annotationRootsFor(
 }
 
 /**
- * Activates the Google API Linter extension.
+ * Activates the Protobuf AIP Linter extension.
  * Sets up providers, commands, and document listeners.
  * @param context - The extension context provided by VS Code
  */

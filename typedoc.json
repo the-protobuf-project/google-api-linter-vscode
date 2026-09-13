@@ -7,7 +7,7 @@
 	"excludeProtected": false,
 	"excludeExternals": true,
 	"readme": "README.md",
-	"name": "Google API Linter for VSCode",
+	"name": "Protobuf AIP Linter for VSCode",
 	"includeVersion": true,
 	"sort": ["source-order"],
 	"plugin": [],

@@ -246,7 +246,7 @@ Collected from each track as it lands. The integrator owns `src/extension.ts` an
 ### From Track A (lint pipeline) — landed
 
 1. **Dispose the provider.** `ApiLinterProvider` now owns a second `DiagnosticCollection`
-   (`google-api-linter-syntax`), a debounce timer, and possibly an in-flight `buf` child process.
+   (`protobuf-aip-linter-syntax`), a debounce timer, and possibly an in-flight `buf` child process.
    Push it into `context.subscriptions` or it leaks on deactivate.
 2. **Trigger the syntax check.** Per-file lint no longer runs `buf` at all, so syntax errors will not
    appear until `linterProvider.scheduleWorkspaceSyntaxCheck()` is called. Wire it into the existing
@@ -257,7 +257,7 @@ Collected from each track as it lands. The integrator owns `src/extension.ts` an
 
 **Why a second collection:** a shared one would have the workspace `buf build` pass and the per-file
 api-linter pass overwrite each other. Diagnostic `source` strings are unchanged
-(`google-api-linter`, `google-api-linter (syntax)`), so `statusBar.ts`, `protoView.ts` and
+(`protobuf-aip-linter`, `protobuf-aip-linter (syntax)`), so `statusBar.ts`, `protoView.ts` and
 `hoverProvider.ts` keep filtering correctly.
 
 ---
@@ -358,7 +358,7 @@ measurements untrustworthy). `Integer64` referenced in 54 `attachment.proto` fil
 nowhere — **fixed**: FHIR R5's `integer64` was missing from `primitiveMap` in
 `tools/protogen/types.go`, so the generator fell through to its complex-type fallback and emitted a
 type name nothing declares; it now maps to `int64`. Still open: the root `buf.yaml` declares no
-`modules:`, so the nested `google-api-linter-vscode/` checkout is compiled into the FHIR module and
+`modules:`, so the nested `protobuf-aip-linter-vscode/` checkout is compiled into the FHIR module and
 contributes 10 errors to every `buf build`. Scope buf invocations with `--path protobuf` until that
 is settled.
 

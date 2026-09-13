@@ -88,15 +88,15 @@ jobs:
             echo ""
             echo "**From VS Code Marketplace** (recommended)"
             echo ""
-            echo "Install from the [Visual Studio Code Marketplace](https://marketplace.visualstudio.com/items?itemName=the-protobuf-project.google-api-linter): open VS Code → Extensions (Ctrl+Shift+X / Cmd+Shift+X) → search **Google API Linter** → Install."
+            echo "Install from the [Visual Studio Code Marketplace](https://marketplace.visualstudio.com/items?itemName=the-protobuf-project.protobuf-aip-linter): open VS Code → Extensions (Ctrl+Shift+X / Cmd+Shift+X) → search **Protobuf AIP Linter** → Install."
             echo ""
-            echo "You can also [download the extension](https://marketplace.visualstudio.com/items?itemName=the-protobuf-project.google-api-linter) from the Marketplace page."
+            echo "You can also [download the extension](https://marketplace.visualstudio.com/items?itemName=the-protobuf-project.protobuf-aip-linter) from the Marketplace page."
             echo ""
             echo "**From this release**"
             echo ""
             echo "Download the \`.vsix\` asset below and install from the command line:"
             echo "\`\`\`bash"
-            echo "code --install-extension google-api-linter-${{ steps.get-version.outputs.version }}.vsix"
+            echo "code --install-extension protobuf-aip-linter-${{ steps.get-version.outputs.version }}.vsix"
             echo "\`\`\`"
           } > release_notes.md
           echo "Release notes generated."
@@ -109,7 +109,7 @@ jobs:
           name: ${{ github.ref_name }}
           body_path: release_notes.md
           files: |
-            google-api-linter-${{ steps.get-version.outputs.version }}.vsix
+            protobuf-aip-linter-${{ steps.get-version.outputs.version }}.vsix
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -120,8 +120,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./google-api-linter-${{ steps.get-version.outputs.version }}.vsix
-          asset_name: google-api-linter-${{ steps.get-version.outputs.version }}.vsix
+          asset_path: ./protobuf-aip-linter-${{ steps.get-version.outputs.version }}.vsix
+          asset_name: protobuf-aip-linter-${{ steps.get-version.outputs.version }}.vsix
           asset_content_type: application/vsix
 
       - name: Publish to VS Code Marketplace

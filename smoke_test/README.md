@@ -26,7 +26,7 @@ Use this to try the extension in a real VS Code window with the smoke-test proto
 
 5. **Manually verify**:
    - Open `protobuf/service/service.proto` or `message.proto`.
-   - **Linting**: Save the file and check the **Problems** panel and **Output** → "Google API Linter".
+   - **Linting**: Save the file and check the **Problems** panel and **Output** → "Protobuf AIP Linter".
    - **Outline**: Open **Outline** view; you should see messages, services, enums, rpcs.
    - **Completions**: Type `message ` or `rpc ` and confirm suggestions with type hints.
    - **Go to definition**: Ctrl+Click (Cmd+Click) on a type (e.g. `Todo`, `CreateTodoRequest`).
