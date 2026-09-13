@@ -291,7 +291,64 @@
 					"group": "1_modification"
 				}
 			]
-		}
+		},
+		"semanticTokenTypes": [
+			{
+				"id": "protoAnnotation",
+				"superType": "decorator",
+				"description": "A custom protobuf option that resolves to a known extension"
+			},
+			{
+				"id": "protoAnnotationNamespace",
+				"superType": "namespace",
+				"description": "The package portion of a custom protobuf option name"
+			},
+			{
+				"id": "protoAnnotationField",
+				"superType": "property",
+				"description": "A field inside a custom option's message body"
+			},
+			{
+				"id": "protoAnnotationUnknown",
+				"superType": "decorator",
+				"description": "A custom protobuf option that no indexed extend block declares, or whose annotations.proto this file does not import"
+			},
+			{
+				"id": "protoAnnotationFieldUnknown",
+				"superType": "property",
+				"description": "A field the custom option's message body does not declare"
+			}
+		],
+		"semanticTokenScopes": [
+			{
+				"language": "proto3",
+				"scopes": {
+					"protoAnnotation": [
+						"entity.name.function.decorator",
+						"entity.name.tag",
+						"support.type.property-name"
+					],
+					"protoAnnotationNamespace": [
+						"entity.name.namespace",
+						"entity.name.type.namespace",
+						"support.type"
+					],
+					"protoAnnotationField": [
+						"variable.other.property",
+						"support.type.property-name",
+						"meta.object-literal.key"
+					],
+					"protoAnnotationUnknown": [
+						"invalid.illegal",
+						"invalid"
+					],
+					"protoAnnotationFieldUnknown": [
+						"invalid.illegal",
+						"invalid"
+					]
+				}
+			}
+		]
 	},
 	"scripts": {
 		"vscode:prepublish": "tsc --noEmit && node esbuild.js --production",
@@ -317,7 +374,6 @@
 	},
 	"dependencies": {
 		"fast-glob": "^3.3.3",
-		"vscode-languageclient": "^10.0.0",
 		"yaml": "^2.8.2"
 	},
 	"devDependencies": {
@@ -331,8 +387,6 @@
 		"esbuild": "^0.28.0",
 		"eslint": "^10.0.3",
 		"typedoc": "^0.28.17",
-		"typescript": "^6.0.2",
-		"vscode-languageserver": "^10.0.0",
-		"vscode-languageserver-textdocument": "^1.0.12"
+		"typescript": "^6.0.2"
 	}
 }
