@@ -136,12 +136,11 @@ Interfaces are defined up front so every track builds against them concurrently 
 
 - [x] **1a.1** (F) Annotation registry extracted from `extend google.protobuf.*Options`. *Done —
       59 annotations / 11 namespaces / 59 ms against the real module cache.*
-- [ ] **1a.2** (F) `DocumentSemanticTokensProvider` for annotation highlighting; custom token types
-      contributed with scope fallbacks.
-- [ ] **1a.3** (F) Hover: option name → derived card; body field → that field's comment.
-- [ ] **1a.4** (F) Target-aware completion; snippets generated from the message shape.
-- [ ] **1a.5** (F) Diagnostics: unknown annotation, wrong target, unknown body field, missing import,
-      per-file extension-number collision.
+- [x] **1a.2** (F) `DocumentSemanticTokensProvider` for annotation highlighting. *Done.*
+- [x] **1a.3** (F) Hover: option name, body field, and `extend` declaration. *Done.*
+- [x] **1a.4** (F) Target-aware completion; snippets generated from the message shape. *Done.*
+- [x] **1a.5** (F) Diagnostics: unknown annotation, wrong target, unknown body field, missing
+      import, per-file extension-number collision. *Done.*
 - [~] **1a.6** (G) Hardcoded MCP removed from `protoScanner.ts` and `completionProvider.ts`.
       *`snippets/proto3.json` still carries eight stale `mcp.protobuf.*` snippets — integrator to
       delete once Track F's derived completions land.*
@@ -205,6 +204,32 @@ api-linter pass overwrite each other. Diagnostic `source` strings are unchanged
 
 ---
 
+### From Track F (annotations) — landed
+
+Entry point, already pushed onto `context.subscriptions` for you and also returned:
+
+```ts
+import { registerAnnotationSupport } from "./annotations/support";
+const annotations = registerAnnotationSupport(context, index); // index may be undefined
+```
+
+`AnnotationSupport extends vscode.Disposable`, exposes `.semanticTokens`, `.diagnostics`,
+`.refresh()`, and subscribes to `index.onDidChange` itself — nothing needs to poke it after a build.
+An undefined index makes everything a no-op.
+
+**`package.json` must gain `contributes.semanticTokenTypes` and `contributes.semanticTokenScopes`.**
+The exact JSON is mirrored as `SEMANTIC_TOKEN_TYPE_CONTRIBUTION` / `SEMANTIC_TOKEN_SCOPE_CONTRIBUTION`
+in `src/annotations/support.ts` so the two cannot drift — copy from there rather than retyping. Five
+token types (`protoAnnotation`, `protoAnnotationNamespace`, `protoAnnotationField`, and the two
+`…Unknown` variants). Each carries a `superType` so it inherits colour from a standard type, and the
+scope lists are TextMate fallbacks, so no user configuration is needed. The `Unknown` types map to
+`invalid.illegal`, which every shipped theme renders as an error.
+
+**Still to do at integration:** delete the eight stale `mcp.protobuf.*` snippets from
+`snippets/proto3.json` (task 1a.6) — derived completion now supersedes them.
+
+---
+
 ## Verification
 
 Run from the extension directory:
@@ -240,3 +265,5 @@ checkout is compiled into the FHIR module.
   the prototype's inflated 98 to the true 59.
 - 2026-09-13 — Remaining: Track D (index core, still nothing written after two quota deaths) and
   Track F's VS Code providers. Both re-dispatched. Then integration (I.1–I.3).
+- 2026-09-13 — Track F fully landed: semantic tokens, hover, completion, diagnostics. Only Track D
+  (index core) and integration remain.
