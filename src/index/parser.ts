@@ -65,7 +65,16 @@ const NON_FIELD_KEYWORDS = new Set([
 
 const RE_PACKAGE = /^(\s*package\s+)([A-Za-z_][\w.]*)\s*;/;
 const RE_IMPORT = /^\s*import\s+(?:public\s+|weak\s+)?"([^"]+)"\s*;/;
-const RE_DECL = /^(\s*(message|enum|service|extend)\s+)([A-Za-z_][\w.]*)/;
+// The optional leading dot is for `extend`, whose operand is a reference to
+// another file's type and may be written fully qualified as
+// `.google.protobuf.MessageOptions`. Every other type position in this file --
+// RE_FIELD, RE_MAP_FIELD, RE_RPC -- already accepts one; this was the only
+// holdout, and the cost was silent: the block matched nothing, so the extend
+// symbol, its reference to the extendee and every extension field inside it
+// were all absent from the index. A `message`/`enum`/`service` name cannot
+// legitimately carry a dot, but the index is not a validator and parsing such a
+// line leniently costs nothing.
+const RE_DECL = /^(\s*(message|enum|service|extend)\s+)(\.?[A-Za-z_][\w.]*)/;
 const RE_ONEOF = /^\s*oneof\s+[A-Za-z_]\w*/;
 const RE_RPC =
 	/^(\s*rpc\s+)([A-Za-z_]\w*)(\s*\(\s*)(?:stream\s+)?([.\w]+)(\s*\)\s*returns\s*\(\s*)(?:stream\s+)?([.\w]+)/;

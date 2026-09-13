@@ -131,8 +131,13 @@ export interface ProtoDocumentModel {
 const RE_IMPORT_LINE =
 	/^[ \t]*import[ \t]+(?:public[ \t]+|weak[ \t]+)?"([^"]*)"/;
 const RE_PACKAGE_LINE = /^[ \t]*package[ \t]+([A-Za-z0-9_.]+)[ \t]*;/;
+// The field's type takes an optional leading dot, protobuf's spelling for a
+// fully-qualified reference. Without it the declaration vanishes from the model:
+// no hover and no semantic token on the declaration site, and `declaredHere`
+// answers false, so the very file declaring an option can be told its own option
+// is unknown. `RE_FIELD` in extractor.ts spells it the same way.
 const RE_EXTENSION_FIELD =
-	/^([ \t]*(?:(?:optional|required|repeated)[ \t]+)?[A-Za-z_][\w.]*[ \t]+)([A-Za-z_]\w*)[ \t]*=[ \t]*(\d+)/;
+	/^([ \t]*(?:(?:optional|required|repeated)[ \t]+)?\.?[A-Za-z_][\w.]*[ \t]+)([A-Za-z_]\w*)[ \t]*=[ \t]*(\d+)/;
 
 const EXTENDEE_TARGETS: Readonly<Record<string, AnnotationTarget>> = {
 	FileOptions: "File",

@@ -762,7 +762,7 @@ message M {
 // answers false, so the file that declares the option can be told its own
 // option is unknown.
 // Expected: both fields below are recorded, the leading dot notwithstanding.
-test.skip("reads an extension field whose type is fully qualified", () => {
+test("reads an extension field whose type is fully qualified", () => {
 	const model = analyzeProtoDocument(`package x.v1;
 extend google.protobuf.MessageOptions {
   optional .x.v1.Body rooted = 1;

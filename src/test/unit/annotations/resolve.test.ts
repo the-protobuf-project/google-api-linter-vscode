@@ -521,7 +521,7 @@ describe("knownNamespaceFor and suggestAnnotation", () => {
 // `tool` and the fix would never fire. See the leading-dot test in
 // document.test.ts.
 // Expected: undefined, because nothing declares a top-level `tool`.
-test.skip("treats a leading dot as rooted at the root namespace", () => {
+test("treats a leading dot as rooted at the root namespace", () => {
 	const registry = registryOf({
 		importPath: "a/b/ann.proto",
 		text: declares("a.b", "tool"),

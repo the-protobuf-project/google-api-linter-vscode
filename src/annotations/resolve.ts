@@ -137,13 +137,25 @@ export function resolveDescriptor(
 	written: string,
 	packageName: string,
 ): AnnotationDescriptor | undefined {
-	const bare = written.startsWith(".") ? written.slice(1) : written;
+	const rooted = written.startsWith(".");
+	const bare = rooted ? written.slice(1) : written;
 	if (bare.length === 0) {
 		return undefined;
 	}
 	const direct = registry.get(bare);
 	if (direct) {
 		return direct;
+	}
+	// A leading dot is protobuf's "from the root namespace": `.tool` names a
+	// top-level `tool` and nothing else, so the scope walk below must not run.
+	// Stripping the dot and walking anyway resolved `.tool` to `a.b.tool`,
+	// which is the opposite of what the spelling asks for.
+	//
+	// Reaching this from a buffer additionally needs `analyzeProtoDocument` to
+	// stop dropping the dot from `OptionReference.fqn`; today an author writing
+	// `(.tool)` arrives here as `tool`, so this branch guards direct callers.
+	if (rooted) {
+		return undefined;
 	}
 	let scope = packageName;
 	while (scope.length > 0) {

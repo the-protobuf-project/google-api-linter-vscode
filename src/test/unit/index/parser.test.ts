@@ -873,7 +873,7 @@ message M {
 // than a decision. It is the same gap the sibling annotation extractor has.
 // src/index/parser.ts:68.
 // Expected: the extend and its field are recorded exactly as the undotted form.
-test.skip("accepts a fully-qualified extendee written with a leading dot", () => {
+test("accepts a fully-qualified extendee written with a leading dot", () => {
 	const file = parse(`package x.v1;
 extend .google.protobuf.MessageOptions {
   optional Body b = 3;
