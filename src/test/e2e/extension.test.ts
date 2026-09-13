@@ -25,9 +25,12 @@ export async function run(): Promise<void> {
 	}
 
 	// 2. Open a .proto file and get document symbols (outline)
+	// smoke_test/protobuf/protobuf/service/service.proto -- the inner "protobuf"
+	// directory is the module root, so the path repeats. A rename sweep once
+	// replaced it with the org name and silently broke this test.
 	const protoPath = path.join(
 		workspaceRoot,
-		"the-protobuf-project",
+		"protobuf",
 		"service",
 		"service.proto",
 	);

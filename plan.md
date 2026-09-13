@@ -97,8 +97,9 @@ Interfaces are defined up front so every track builds against them concurrently 
 - [ ] **0.3** (A) Batch `lintWorkspace` into one api-linter process per module, chunked under ARG_MAX.
 - [ ] **0.4** (C) `spawnSync` → async `spawn`. Removes the event-loop freeze.
 - [ ] **0.5** (E) Proto view: no scan on activation, lazy per-section, file-count ceiling.
-- [ ] **0.6** (H) Delete `server.ts` + `extension-lsp.ts`; drop `vscode-languageclient` /
-      `vscode-languageserver` / `vscode-languageserver-textdocument` from `package.json`.
+- [x] **0.6** (H) Delete `server.ts` + `extension-lsp.ts`. *Done — both were unreachable. The three
+      `vscode-language*` dependencies they pulled in are removed at integration, in one pass with the
+      lockfile, to avoid racing concurrent agents.*
 
 ### Phase 1 — the index
 
@@ -158,4 +159,7 @@ checkout is compiled into the FHIR module.
 
 ## Status log
 
-- 2026-09-13 — Branch created. Contracts written. Tracks A–H dispatched in parallel.
+- 2026-09-13 — Branch created. Contracts written (`src/index/types.ts`).
+- 2026-09-13 — Track H done: dead LSP scaffold deleted. Budget settings added to `package.json`
+  (`gapi.index.maxMemoryMB`, `gapi.index.maxFiles`, `gapi.index.enabled`, `gapi.protoView.maxFiles`).
+- 2026-09-13 — Tracks A–G dispatched concurrently against the contract.
