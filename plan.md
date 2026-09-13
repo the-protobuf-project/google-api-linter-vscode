@@ -49,11 +49,26 @@ block that declares its own FQN (`package` + field name), legal targets (the ext
 block in that comment), field number, and source location. Never hardcode annotation names — the
 extension currently hardcodes `mcp.protobuf.*`, which is two generations stale (current is
 `mcp.v1.*`), so MCP completion, snippets, and the Proto view MCP section are all silently dead.
-Prototype validated: 98 annotations, 11 namespaces, 495 body messages, 65 ms.
+Validated against the real buf module cache: **59 annotations across 11 namespaces in 59 ms**, plus
+the 3 extension-number collisions between `entity.v1` and `protokit.v1`. (An earlier prototype
+reported 98; that double-counted the same annotation once per cached module *commit* — `store` has 5
+cached commits, `googleapis` 4. Deduplicated by fqn the prototype finds 58, and the shipped extractor
+finds 59 because it also catches `google.api.field_behavior` #1052, which the prototype's stricter
+regex missed.)
 
 **Highlighting must use semantic tokens.** TextMate grammars are static files and cannot be driven by
 an index. Use `DocumentSemanticTokensProvider` + `contributes.semanticTokenTypes` /
 `semanticTokenScopes`.
+
+---
+
+## Published write-ups
+
+- Diagnosis + phase plan — https://claude.ai/code/artifact/047cabce-dd9b-4cb1-a417-93ea0a5652a4
+- Annotation design — https://claude.ai/code/artifact/2b951219-a2ed-4d21-be3b-acba788e2c87
+
+Both were republished 2026-09-13 after an account switch made the originals unreachable. Artifacts
+are convenience copies; **this file is the durable state.**
 
 ---
 
@@ -93,9 +108,9 @@ Interfaces are defined up front so every track builds against them concurrently 
       *Done before this branch; 155 edits across 154 files → 1 edit in 1 file.*
 - [x] **0.1** (A) Remove `runBufSyntaxCheck` from the per-file lint path. Run `buf build` at most once
       per workspace, debounced, fan diagnostics out by file. *Done.*
-- [ ] **0.2** (B) `formatAllProtos` → one `buf format -w` per module, not per file.
+- [x] **0.2** (B) `formatAllProtos` → one `buf format -w` per module, not per file. *Done.*
 - [x] **0.3** (A) Batch `lintWorkspace` into one api-linter process per module, chunked under ARG_MAX. *Done.*
-- [ ] **0.4** (C) `spawnSync` → async `spawn`. Removes the event-loop freeze.
+- [x] **0.4** (C) `spawnSync` → async `spawn`. *Done — both calls gone; deps resolve with no subprocess at all.*
 - [x] **0.5** (E) Proto view: no scan on activation, lazy per-section, file-count ceiling. *Done.*
 - [x] **0.6** (H) Delete `server.ts` + `extension-lsp.ts`. *Done — both were unreachable. The three
       `vscode-language*` dependencies they pulled in are removed at integration, in one pass with the
@@ -112,15 +127,15 @@ Interfaces are defined up front so every track builds against them concurrently 
       sites across all five, stricter than the rule required.*
 - [x] **1.5** (G) Index by **fully-qualified** name, then re-enable cross-file rename. *Done —
       verified against the reference repo: renaming `Address` touches 1–2 files, was 154.*
-- [ ] **1.6** (C) Module graph: discover *every* `buf.yaml` and `buf.work.yaml`; map
-      `moduleRoot → {roots, deps, lintConfig}`; resolve each file to its module by longest prefix.
-- [ ] **1.7** (C) Dependency resolution via `buf.lock` → module cache. Delete `runBufExport`.
+- [x] **1.6** (C) Module graph: every `buf.yaml` and `buf.work.yaml`, per-file longest-prefix
+      resolution. *Done.*
+- [x] **1.7** (C) Dependency resolution via `buf.lock` → module cache. *Done — `runBufExport` deleted.*
 - [x] **1.8** (E) Proto view reads the index instead of scanning. *Done.*
 
 ### Phase 1a — annotations
 
-- [ ] **1a.1** (F) Annotation registry extracted from `extend google.protobuf.*Options` during the
-      index walk. Prototype exists and is validated.
+- [x] **1a.1** (F) Annotation registry extracted from `extend google.protobuf.*Options`. *Done —
+      59 annotations / 11 namespaces / 59 ms against the real module cache.*
 - [ ] **1a.2** (F) `DocumentSemanticTokensProvider` for annotation highlighting; custom token types
       contributed with scope fallbacks.
 - [ ] **1a.3** (F) Hover: option name → derived card; body field → that field's comment.
@@ -220,3 +235,8 @@ checkout is compiled into the FHIR module.
 - 2026-09-13 — Track A landed: per-file `buf build` removed, workspace lint batched.
 - 2026-09-13 — Tracks G and E landed: five providers off `openTextDocument` entirely, cross-file
   rename restored safely on fully-qualified names, Proto view lazy and index-backed.
+- 2026-09-13 — Second quota exhaustion; Tracks C and F died again but had written most of their work.
+  Committed after a format pass. Tracks B, C and F(core) landed. Corrected the annotation count from
+  the prototype's inflated 98 to the true 59.
+- 2026-09-13 — Remaining: Track D (index core, still nothing written after two quota deaths) and
+  Track F's VS Code providers. Both re-dispatched. Then integration (I.1–I.3).
