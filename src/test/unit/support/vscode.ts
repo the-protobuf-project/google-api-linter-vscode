@@ -241,14 +241,60 @@ export class EventEmitter<T> {
 	}
 }
 
+/** Mirrors `vscode.DiagnosticRelatedInformation`. */
+export class DiagnosticRelatedInformation {
+	constructor(
+		readonly location: Location,
+		readonly message: string,
+	) {}
+}
+
 export class Diagnostic {
 	code?: string | number;
 	source?: string;
+	relatedInformation?: DiagnosticRelatedInformation[];
 	constructor(
 		readonly range: Range,
 		readonly message: string,
 		readonly severity?: number,
 	) {}
+}
+
+/**
+ * Mirrors `vscode.DiagnosticCollection`, keeping what was published.
+ *
+ * A provider's only observable output is what it hands the collection, so the
+ * real module's write-only object would make every diagnostic test vacuous.
+ */
+export class DiagnosticCollection {
+	private readonly entries = new Map<string, readonly Diagnostic[]>();
+	/** True once disposed, which the extension does on deactivation. */
+	disposed = false;
+	constructor(readonly name = "") {}
+	set(uri: Uri, diagnostics: readonly Diagnostic[] | undefined): void {
+		if (diagnostics === undefined) {
+			this.entries.delete(uri.toString());
+			return;
+		}
+		this.entries.set(uri.toString(), diagnostics);
+	}
+	get(uri: Uri): readonly Diagnostic[] | undefined {
+		return this.entries.get(uri.toString());
+	}
+	delete(uri: Uri): void {
+		this.entries.delete(uri.toString());
+	}
+	clear(): void {
+		this.entries.clear();
+	}
+	/** Uris currently carrying diagnostics. */
+	uris(): string[] {
+		return [...this.entries.keys()];
+	}
+	dispose(): void {
+		this.disposed = true;
+		this.entries.clear();
+	}
 }
 
 /**
@@ -370,13 +416,7 @@ export const languages = {
 	registerCompletionItemProvider: () => ({ dispose() {} }),
 	registerHoverProvider: () => ({ dispose() {} }),
 	registerDocumentSemanticTokensProvider: () => ({ dispose() {} }),
-	createDiagnosticCollection: () => ({
-		set() {},
-		delete() {},
-		clear() {},
-		dispose() {},
-		get: () => undefined,
-	}),
+	createDiagnosticCollection: (name?: string) => new DiagnosticCollection(name),
 };
 
 export const commands = {

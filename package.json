@@ -2,12 +2,13 @@
 	"name": "protobuf-aip-linter",
 	"displayName": "Protobuf AIP Linter",
 	"description": "Protobuf AIP Linter for VS Code - Production Grade API Design",
-	"version": "1.3.0",
+	"version": "2.0.0",
 	"publisher": "the-protobuf-project",
+	"license": "Apache-2.0",
 	"icon": "picon.png",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/the-protobuf-project/protobuf-aip-linter-vscode"
+		"url": "https://github.com/the-protobuf-project/google-api-linter-vscode"
 	},
 	"packageManager": "bun@1.3.0",
 	"engines": {
@@ -408,5 +409,9 @@
 		"esbuild": "^0.28.0",
 		"typedoc": "^0.28.20",
 		"typescript": "^7.0.2"
-	}
+	},
+	"bugs": {
+		"url": "https://github.com/the-protobuf-project/google-api-linter-vscode/issues"
+	},
+	"homepage": "https://github.com/the-protobuf-project/google-api-linter-vscode#readme"
 }

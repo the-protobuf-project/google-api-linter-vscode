@@ -6,27 +6,34 @@
 - **Real-time Linting**: Automatically validates `.proto` files as you type or save
 - **Inline Diagnostics**: Displays linting errors and warnings directly in the editor
 - **Hover Documentation**: Shows detailed rule information when hovering over diagnostics
-- **Proto View (Activity Bar)**: Debugger-style sidebar with **Lint**, **Format**, **Reload**; **Report Issue** (GitHub icon) opens a pre-filled bug issue on GitHub; **Services** (expand to RPCs, then Request/Response—click to go to type in file); **Resources**; **MCP** (Tools, Elicitation, Prompts); **Messages** (expand for fields and enums); **Enums**; **Deps** (googleapis, protobuf); **Files** with pastel status (cyan=OK, magenta=warning, blue=error). **Collapse All** in the title bar. Click any item to jump to that symbol or type in the file. Right‑click a file to **Lint** or **Format** that file.
+- **Proto View (Activity Bar)**: Debugger-style sidebar with **Lint**, **Format**, **Reload**; **Report Issue** (GitHub icon) opens a pre-filled bug issue on GitHub; **Services** (expand to RPCs, then Request/Response—click to go to type in file); **Resources**; **Messages** (expand for fields and enums); **Enums**; **Annotations** (grouped by namespace, discovered from the workspace); **Deps** (googleapis, protobuf); **Files** with pastel status (cyan=OK, magenta=warning, blue=error). **Collapse All** in the title bar. Click any item to jump to that symbol or type in the file. Right‑click a file to **Lint** or **Format** that file.
 - **Status Bar**: Shows "Proto" or "Proto: X error(s), Y warning(s)"; click to open the Proto view
 - **Config File Validation**: Warnings for unknown keys and invalid paths in `.api-linter.yaml` and `workspace.protobuf.yaml`
 
 ### Editor support
 - **Syntax Highlighting**: Full Protocol Buffers syntax highlighting with TextMate grammar
-- **IntelliSense**: Completions, signature help, and hover for messages, services, RPCs, options (`google.api.http`, `google.api.resource`, `mcp.protobuf.*`), and keywords
+- **IntelliSense**: Completions, signature help, and hover for messages, services, RPCs, and keywords
+- **Annotation IntelliSense, derived from your schema**: Every custom option is discovered from its own `extend google.protobuf.*Options` block — its legal targets from the extendee, its body shape from the message it names, its documentation and usage example from its leading comment. Completion is target-aware, so a method option is never offered on a message, and accepting one inserts the missing `import`. Nothing is hardcoded, so options added to your own modules work without an extension update
+- **Enum value completion**: Assigning an enum-typed option or body field offers that enum's members in declaration order, with the proto3 `_UNSPECIFIED` value last. Types with open value sets offer nothing rather than a placeholder
+- **Semantic highlighting for annotations**: Option namespace, option name, body field and enum value each get their own colour, and a value the enum does not declare is marked as an error in the editor rather than at build time. On by default for proto files
 - **Import Path Completion**: After `import "`, suggests `.proto` paths from the workspace and configured proto paths
 - **Format Document**: Format `.proto` files with **buf format** (if `buf` is installed), **clang-format**, or a built-in **simple** indent; **`gapi.formatOnSave`** formats the **buffer** on save (see Troubleshooting if you also use Editor: Format On Save)
-- **Code Snippets**: Snippets for proto3, messages, services, RPCs, HTTP/resource options, MCP options, and a full **resource + service** (`resourceservice`) that generates a `_service.proto` with a resource message and List/Get/Create/Update/Delete RPCs
+- **Code Snippets**: Snippets for proto3, messages, services, RPCs, HTTP/resource options, and a full **resource + service** (`resourceservice`) that generates a `_service.proto` with a resource message and List/Get/Create/Update/Delete RPCs
 - **Document Links**: Clickable `import "path/to/file.proto"` links that open the imported file
 - **Go to Definition / Find References**: Navigate to message, enum, and service definitions and find all references
-- **Rename Symbol**: Rename messages, services, enums, and RPCs with updates across the workspace
+- **Rename Symbol**: Rename messages, services, enums, and RPCs across the workspace, matched on the fully-qualified name — so renaming a type shared by several packages touches only the one you meant
 - **Code Actions (Quick Fixes)**: Add `(google.api.http)` for RPCs, `(google.api.resource)` for messages, and `_UNSPECIFIED = 0` for enums
 - **Outline & Folding**: Document symbols and folding ranges for messages, services, enums, and oneofs
+
+### Scale
+- **Large workspaces**: Symbols come from an in-memory index rather than from opening every file — 9,257 protos index in 495 ms and occupy 25.5 MB. Linting batches one process per module, and the syntax check runs once per workspace rather than once per file
+- **Proto view groups by version**: Above a configurable file ceiling, symbol sections group by the `vN` segment of the package and then by package, so a workspace with several API versions stays navigable instead of rendering thousands of siblings
 
 ### Workspace & setup
 - **Automatic Binary Management**: Downloads and updates api-linter binary automatically
 - **Automatic googleapis Integration**: Downloads googleapis protos on first use - no configuration needed
 - **Smart Proto Path Detection**: Uses `workspace.protobuf.yaml`, **buf.yaml** (modules + deps), and settings for proto paths
-- **buf.yaml support**: When `buf.yaml` is present, the extension runs `buf mod download` and `buf export` so linting resolves all **deps** (e.g. `buf.build/googleapis/googleapis`, `buf.build/the-protobuf-project/grpc-mcp-gateway`) and local **modules**; no manual proto paths needed for Buf dependencies
+- **buf.yaml support**: Every `buf.yaml` and `buf.work.yaml` in the workspace is read, and each file resolves to its own module by longest path prefix, so nested and multiple modules work. Dependencies are resolved by reading `buf.lock` and pointing at the buf module cache directly — no subprocess, and it still works when the module does not currently compile, which is when a linter is most wanted
 - **Protobuf folder as root**: If your protos live under a folder named `protobuf/`, that directory is used as the import root so `import "store/info/v1/category.proto"` resolves to `protobuf/store/info/v1/category.proto`; linting works from any subfolder
 - **.api-linter.yaml auto-discovery**: If you don’t set `gapi.configPath`, the extension finds `.api-linter.yaml` by walking up from the current file to the workspace root, so the config is used even when editing files in subfolders
 - **Workspace Linting**: Lint all proto files in your workspace with a single command
@@ -38,7 +45,7 @@
 
 ## Troubleshooting
 
-- **Imports / go-to-definition until reload**: The extension resolves imports using the same roots as linting (`workspace.protobuf.yaml`, **buf export**, `gapi.protoPath`, `~/.gapi`). After changing **buf.yaml** or **buf.lock**, paths refresh automatically; if something still looks stale, run **Developer: Reload Window**.
+- **Imports / go-to-definition until reload**: The extension resolves imports using the same roots as linting (`workspace.protobuf.yaml`, the buf module cache, `gapi.protoPath`, `~/.gapi`). After changing **buf.yaml** or **buf.lock**, paths refresh automatically; if something still looks stale, run **Developer: Reload Window**.
 - **Double format on save**: With **`gapi.formatOnSave`** enabled, the extension formats in **will save** from the **in-memory** buffer (so buf matches unsaved edits). If you also use **Editor: Format On Save**, VS Code may run a second format pass; disable one of them if that is unwanted.
 - **Buf / api-linter not found**: Set **`gapi.bufPath`** and **`gapi.binaryPath`** to absolute paths if they are not on `PATH`. The first run may download deps into `~/.gapi` (needs network).
 - **Rapid saves and lint**: If you save twice very quickly, the linter **re-runs** after the first pass finishes so the latest file state is still covered.
@@ -338,8 +345,12 @@ In **multi-root workspaces**, each folder can have its own `workspace.protobuf.y
 If your project uses [Buf](https://buf.build/) with a `buf.yaml` at the workspace root (or next to your protos), the extension will:
 
 - Read **modules** (e.g. `path: protobuf`, `name: buf.build/the-protobuf-project/protoverse`) and **deps** (e.g. `buf.build/googleapis/googleapis`, `buf.build/the-protobuf-project/grpc-mcp-gateway`)
-- Run `buf mod download` and `buf export` so the api-linter can resolve all imports when linting
-- Use the exported tree and local module paths as proto paths (cached for 5 minutes)
+- Read `buf.lock` and map each dependency to its directory in the buf module cache
+  (`~/.cache/buf/v3/modules/b5/<name>/<commit>/files`), so the api-linter can resolve every import
+- Use those cache directories and the local module paths as proto paths. No subprocess is
+  spawned and no temporary directory is written, and resolution keeps working when the module
+  does not currently compile — which is exactly when the linter is needed. Run
+  `buf dep update` yourself if a dependency is missing from the cache
 
 Ensure `buf` is on your PATH. If `buf` is not installed or export fails, the extension falls back to other proto paths (`workspace.protobuf.yaml`, `gapi.protoPath`, and the `protobuf` folder root).
 
