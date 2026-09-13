@@ -14,7 +14,13 @@
 
 import * as fsp from "node:fs/promises";
 
-/** Mirrors `vscode.Position`. */
+/**
+ * Mirrors `vscode.Position`.
+ *
+ * The comparison and derivation methods are implemented, not merely declared:
+ * a test hands these to code typed against the real `vscode.Position`, so a
+ * partial class fails to typecheck at every call site rather than at one.
+ */
 export class Position {
 	constructor(
 		readonly line: number,
@@ -22,6 +28,51 @@ export class Position {
 	) {}
 	isEqual(other: Position): boolean {
 		return this.line === other.line && this.character === other.character;
+	}
+	isBefore(other: Position): boolean {
+		return (
+			this.line < other.line ||
+			(this.line === other.line && this.character < other.character)
+		);
+	}
+	isBeforeOrEqual(other: Position): boolean {
+		return this.isBefore(other) || this.isEqual(other);
+	}
+	isAfter(other: Position): boolean {
+		return !this.isBeforeOrEqual(other);
+	}
+	isAfterOrEqual(other: Position): boolean {
+		return !this.isBefore(other);
+	}
+	compareTo(other: Position): number {
+		if (this.isEqual(other)) {
+			return 0;
+		}
+		return this.isBefore(other) ? -1 : 1;
+	}
+	// Both take the object form as well as positional arguments, matching the
+	// real overloads; without it the whole class fails to satisfy
+	// `vscode.Position` and every call site reports a type error.
+	translate(
+		lineDelta?: number | { lineDelta?: number; characterDelta?: number },
+		characterDelta?: number,
+	): Position {
+		const delta =
+			typeof lineDelta === "object" ? lineDelta : { lineDelta, characterDelta };
+		return new Position(
+			this.line + (delta.lineDelta ?? 0),
+			this.character + (delta.characterDelta ?? 0),
+		);
+	}
+	with(
+		line?: number | { line?: number; character?: number },
+		character?: number,
+	): Position {
+		const next = typeof line === "object" ? line : { line, character };
+		return new Position(
+			next.line ?? this.line,
+			next.character ?? this.character,
+		);
 	}
 }
 

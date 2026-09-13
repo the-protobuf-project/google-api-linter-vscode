@@ -31,8 +31,8 @@
 
 import { describe, expect, test } from "bun:test";
 import {
-	AnnotationCompletionProvider,
 	ANNOTATION_TRIGGER_CHARACTERS,
+	AnnotationCompletionProvider,
 } from "../../../annotations/completion";
 import { extractAnnotations } from "../../../annotations/extractor";
 import { AnnotationRegistryImpl } from "../../../annotations/registry";
@@ -63,30 +63,60 @@ function providerFor(
  * @param token - Cancellation token, defaulting to a live one
  * @returns Whatever the provider offers there
  */
+/**
+ * One offered completion, narrowed to the shapes this provider actually
+ * produces.
+ *
+ * `vscode.CompletionItem` types `label` as `string | CompletionItemLabel`,
+ * `range` as a range or an insert/replace pair, and `documentation` as a string
+ * or `MarkdownString`. This provider only ever sets the simple form of each, so
+ * narrowing once here keeps every assertion below comparing plain values rather
+ * than repeatedly re-narrowing a union it will never see the other side of.
+ */
+/** The two fields of a position these assertions read. */
+interface TextPosition {
+	line: number;
+	character: number;
+}
+
+interface OfferedItem {
+	label: string;
+	detail?: string;
+	sortText?: string;
+	filterText?: string;
+	insertText?: string | { value: string };
+	documentation?: { value: string };
+	range?: { start: TextPosition; end: TextPosition };
+	additionalTextEdits?: { range: { start: TextPosition }; newText: string }[];
+	kind?: number;
+}
+
 function completeAt(
 	registry: AnnotationRegistryImpl,
 	marked: string,
 	token: { isCancellationRequested: boolean } = CancellationTokenNone,
-) {
+): OfferedItem[] | undefined {
 	const { document, position } = atCursor(marked);
 	return providerFor(registry).provideCompletionItems(
 		document,
 		position,
 		token as never,
-	);
+	) as unknown as OfferedItem[] | undefined;
 }
 
 /** Labels of an offer, in the order the provider returned them. */
-function labels(items: { label: string }[] | undefined): string[] {
+function labels(items: readonly { label: string }[] | undefined): string[] {
 	return (items ?? []).map((item) => item.label);
 }
 
 /** Labels sorted the way a client sorts them, by `sortText`. */
 function sorted(
-	items: { label: string; sortText?: string }[] | undefined,
+	items: readonly { label: string; sortText?: string }[] | undefined,
 ): string[] {
 	return [...(items ?? [])]
-		.sort((a, b) => (a.sortText ?? a.label).localeCompare(b.sortText ?? b.label))
+		.sort((a, b) =>
+			(a.sortText ?? a.label).localeCompare(b.sortText ?? b.label),
+		)
 		.map((item) => item.label);
 }
 
@@ -141,22 +171,25 @@ message M {
 		expect(range?.end.character).toBe(range ? range.start.character + 3 : -1);
 	});
 
-	corpusTest("offers a body field's enum inside a text-format body", async () => {
-		const items = completeAt(
-			await referenceRegistry(),
-			`package x.v1;
+	corpusTest(
+		"offers a body field's enum inside a text-format body",
+		async () => {
+			const items = completeAt(
+				await referenceRegistry(),
+				`package x.v1;
 message M {
   string s = 1 [(buf.validate.field) = { ignore: ▮ }];
 }
 `,
-		);
-		expect(labels(items)).toEqual([
-			"IGNORE_UNSPECIFIED",
-			"IGNORE_IF_ZERO_VALUE",
-			"IGNORE_ALWAYS",
-		]);
-		expect(items?.[0].detail).toBe("buf.validate.Ignore");
-	});
+			);
+			expect(labels(items)).toEqual([
+				"IGNORE_UNSPECIFIED",
+				"IGNORE_IF_ZERO_VALUE",
+				"IGNORE_ALWAYS",
+			]);
+			expect(items?.[0].detail).toBe("buf.validate.Ignore");
+		},
+	);
 
 	corpusTest("resolves a body field split across lines", async () => {
 		const items = completeAt(
@@ -353,7 +386,9 @@ message M {
 		const provider = new AnnotationCompletionProvider(
 			new AnnotationSource(undefined, undefined),
 		);
-		const { document, position } = atCursor("message M {\n  string s = 1 [▮];\n}");
+		const { document, position } = atCursor(
+			"message M {\n  string s = 1 [▮];\n}",
+		);
 		expect(
 			provider.provideCompletionItems(
 				document,
@@ -455,7 +490,9 @@ message M {
 }
 `,
 		);
-		expect(labels(items).sort()).toEqual(offeredFor(registry, "Message").sort());
+		expect(labels(items).sort()).toEqual(
+			offeredFor(registry, "Message").sort(),
+		);
 		expect(labels(items)).toContain("(orm.v1.table)");
 	});
 
@@ -469,7 +506,9 @@ service S {
 }
 `,
 		);
-		expect(labels(items).sort()).toEqual(offeredFor(registry, "Service").sort());
+		expect(labels(items).sort()).toEqual(
+			offeredFor(registry, "Service").sort(),
+		);
 	});
 
 	corpusTest("offers enum options on an enum", async () => {
@@ -485,20 +524,23 @@ enum E {
 		expect(labels(items).sort()).toEqual(offeredFor(registry, "Enum").sort());
 	});
 
-	corpusTest("offers enum value options in an enum member's brackets", async () => {
-		const registry = await referenceRegistry();
-		const items = completeAt(
-			registry,
-			`package x.v1;
+	corpusTest(
+		"offers enum value options in an enum member's brackets",
+		async () => {
+			const registry = await referenceRegistry();
+			const items = completeAt(
+				registry,
+				`package x.v1;
 enum E {
   E_UNSPECIFIED = 0 [▮];
 }
 `,
-		);
-		expect(labels(items).sort()).toEqual(
-			offeredFor(registry, "EnumValue").sort(),
-		);
-	});
+			);
+			expect(labels(items).sort()).toEqual(
+				offeredFor(registry, "EnumValue").sort(),
+			);
+		},
+	);
 
 	corpusTest("offers oneof options inside a oneof", async () => {
 		const registry = await referenceRegistry();
@@ -515,20 +557,23 @@ message M {
 		expect(labels(items).sort()).toEqual(offeredFor(registry, "Oneof").sort());
 	});
 
-	corpusTest("sorts the file's own package ahead of its dependencies", async () => {
-		const items = completeAt(
-			await referenceRegistry(),
-			`package orm.v1;
+	corpusTest(
+		"sorts the file's own package ahead of its dependencies",
+		async () => {
+			const items = completeAt(
+				await referenceRegistry(),
+				`package orm.v1;
 message M {
   option ▮
 }
 `,
-		);
-		const own = items?.find((item) => item.label === "(orm.v1.table)");
-		const other = items?.find((item) => item.label === "(cache.v1.cache)");
-		expect(own?.sortText?.startsWith("0")).toBe(true);
-		expect(other?.sortText?.startsWith("1")).toBe(true);
-	});
+			);
+			const own = items?.find((item) => item.label === "(orm.v1.table)");
+			const other = items?.find((item) => item.label === "(cache.v1.cache)");
+			expect(own?.sortText?.startsWith("0")).toBe(true);
+			expect(other?.sortText?.startsWith("1")).toBe(true);
+		},
+	);
 });
 
 /** Snippet text of one offered annotation, or undefined when it was not offered. */
@@ -542,37 +587,43 @@ function snippetOf(
 }
 
 describe("generated snippets", () => {
-	corpusTest("offers the enum's own values for a bare enum option", async () => {
-		const items = completeAt(
-			await referenceRegistry(),
-			`package x.v1;
+	corpusTest(
+		"offers the enum's own values for a bare enum option",
+		async () => {
+			const items = completeAt(
+				await referenceRegistry(),
+				`package x.v1;
 message M {
   string name = 1 [▮];
 }
 `,
-		);
-		expect(snippetOf(items, "google.api.field_behavior")).toBe(
-			`(google.api.field_behavior) = \${1|${FIELD_BEHAVIOR.join(",")}|}`,
-		);
-	});
+			);
+			expect(snippetOf(items, "google.api.field_behavior")).toBe(
+				`(google.api.field_behavior) = \${1|${FIELD_BEHAVIOR.join(",")}|}`,
+			);
+		},
+	);
 
-	corpusTest("expands a body of exactly MAX_EXPANDED_FIELDS fields", async () => {
-		// `mcp.field` has four: the boundary that still expands inline.
-		const items = completeAt(
-			await referenceRegistry(),
-			`package x.v1;
+	corpusTest(
+		"expands a body of exactly MAX_EXPANDED_FIELDS fields",
+		async () => {
+			// `mcp.field` has four: the boundary that still expands inline.
+			const items = completeAt(
+				await referenceRegistry(),
+				`package x.v1;
 message M {
   string name = 1 [▮];
 }
 `,
-		);
-		expect(snippetOf(items, "mcp.field")).toBe(
-			'(mcp.field) = {\n\tdescription: "${1:value}"\n' +
-				'\texamples: ["${2:value}"]\n' +
-				"\tdeprecated: ${3|true,false|}\n" +
-				'\tformat: "${4:value}"\n}',
-		);
-	});
+			);
+			expect(snippetOf(items, "mcp.field")).toBe(
+				'(mcp.field) = {\n\tdescription: "${1:value}"\n' +
+					'\texamples: ["${2:value}"]\n' +
+					"\tdeprecated: ${3|true,false|}\n" +
+					'\tformat: "${4:value}"\n}',
+			);
+		},
+	);
 
 	corpusTest("inserts an empty body past the expansion cap", async () => {
 		// `orm.v1.table` has five fields, one past the cap.
@@ -706,19 +757,22 @@ message M {
 });
 
 describe("insert shape", () => {
-	corpusTest("writes the option keyword and semicolon in statement position", async () => {
-		const items = completeAt(
-			await referenceRegistry(),
-			`package x.v1;
+	corpusTest(
+		"writes the option keyword and semicolon in statement position",
+		async () => {
+			const items = completeAt(
+				await referenceRegistry(),
+				`package x.v1;
 message M {
   ▮
 }
 `,
-		);
-		expect(snippetOf(items, "store.v1.table")).toBe(
-			"option (store.v1.table) = {\n\toutbox: ${1|true,false|}\n};",
-		);
-	});
+			);
+			expect(snippetOf(items, "store.v1.table")).toBe(
+				"option (store.v1.table) = {\n\toutbox: ${1|true,false|}\n};",
+			);
+		},
+	);
 
 	corpusTest("writes neither inside a field's brackets", async () => {
 		const items = completeAt(
@@ -747,29 +801,30 @@ message M {
 		expect(snippetOf(items, "store.v1.table")?.startsWith("(")).toBe(true);
 	});
 
-	corpusTest("replaces an existing open paren rather than nesting one", async () => {
-		const { document, position } = atCursor(`package x.v1;
+	corpusTest(
+		"replaces an existing open paren rather than nesting one",
+		async () => {
+			const { document, position } = atCursor(`package x.v1;
 message M {
   option (▮)
 }
 `);
-		const registry = await referenceRegistry();
-		const items = providerFor(registry).provideCompletionItems(
-			document,
-			position,
-			CancellationTokenNone as never,
-		);
-		const item = items?.find((entry) => entry.label === "(store.v1.table)");
-		// The range starts on the `(` and ends past the `)`, so accepting swaps
-		// the whole pair instead of producing `((store.v1.table))`.
-		expect(item?.range?.start.character).toBe(position.character - 1);
-		expect(item?.range?.end.character).toBe(position.character + 1);
-		// The filter text keeps the paren so the typed `(` still matches.
-		expect(item?.filterText).toBe("(store.v1.table");
-		expect((item?.insertText as { value: string }).value.startsWith("(")).toBe(
-			true,
-		);
-	});
+			const registry = await referenceRegistry();
+			const items = providerFor(registry).provideCompletionItems(
+				document,
+				position,
+				CancellationTokenNone as never,
+			) as unknown as OfferedItem[] | undefined;
+			const item = items?.find((entry) => entry.label === "(store.v1.table)");
+			// The range starts on the `(` and ends past the `)`, so accepting swaps
+			// the whole pair instead of producing `((store.v1.table))`.
+			expect(item?.range?.start.character).toBe(position.character - 1);
+			expect(item?.range?.end.character).toBe(position.character + 1);
+			// The filter text keeps the paren so the typed `(` still matches.
+			expect(item?.filterText).toBe("(store.v1.table");
+			expect(snippetOf(items, "store.v1.table")?.startsWith("(")).toBe(true);
+		},
+	);
 
 	corpusTest("does not repeat a value the option already has", async () => {
 		const items = completeAt(
@@ -810,7 +865,7 @@ message M {
 			document,
 			position,
 			CancellationTokenNone as never,
-		);
+		) as unknown as OfferedItem[] | undefined;
 		const item = items?.find((entry) => entry.label === "(orm.v1.table)");
 		expect(item?.range?.start.character).toBe(position.character - 9);
 		expect(item?.range?.end.character).toBe(position.character);

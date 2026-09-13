@@ -19,10 +19,10 @@
  * provider's workspace-wide replacement — in linterProvider.test.ts.
  */
 
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Diagnostic } from "vscode";
 import YAML from "yaml";
 import type { LinterOptions, LinterProblem } from "../../../types";
@@ -213,12 +213,12 @@ describe("parseLinterOutput", () => {
 
 	test("returns nothing for a clean file", () => {
 		expect(
-			parseLinterOutput(jsonOutput([{ file_path: "book.proto", problems: [] }])),
+			parseLinterOutput(
+				jsonOutput([{ file_path: "book.proto", problems: [] }]),
+			),
 		).toEqual([]);
 		// The binary omits the key entirely when it has nothing to say.
-		expect(
-			parseLinterOutput('[{"file_path":"book.proto"}]'),
-		).toEqual([]);
+		expect(parseLinterOutput('[{"file_path":"book.proto"}]')).toEqual([]);
 	});
 
 	test("ignores plain text printed around the JSON array", () => {
@@ -545,7 +545,10 @@ describe("buildLinterArgs", () => {
 	});
 
 	test("passes the base name last and runs from the file's directory", () => {
-		const { args, workingDir, fileName } = buildLinterArgs(protoFile, options());
+		const { args, workingDir, fileName } = buildLinterArgs(
+			protoFile,
+			options(),
+		);
 		expect(fileName).toBe("book.proto");
 		expect(args[args.length - 1]).toBe("book.proto");
 		expect(workingDir).toBe(protoDir);
@@ -643,7 +646,9 @@ describe("buildLinterArgs", () => {
 				const { args, tempConfigPath } = buildLinterArgs(protoFile, options());
 				temp = tempConfigPath;
 				expect(tempConfigPath).not.toBeNull();
-				expect(args[args.indexOf("--config") + 1]).toBe(tempConfigPath);
+				expect(args[args.indexOf("--config") + 1]).toBe(
+					tempConfigPath as string,
+				);
 				const wrapped = YAML.parse(
 					fs.readFileSync(tempConfigPath as string, "utf8"),
 				);
@@ -714,10 +719,11 @@ describe("buildLinterBatches", () => {
 	});
 
 	test("resolves a relative path against the process cwd", () => {
-		const [batch] = buildLinterBatches(["pkg/v1/book.proto"], options()).batches;
-		expect(batch.filePaths).toEqual([
-			path.resolve("pkg/v1/book.proto"),
-		]);
+		const [batch] = buildLinterBatches(
+			["pkg/v1/book.proto"],
+			options(),
+		).batches;
+		expect(batch.filePaths).toEqual([path.resolve("pkg/v1/book.proto")]);
 		expect(batch.workingDir).toBe(path.resolve("pkg/v1"));
 	});
 
@@ -732,9 +738,15 @@ describe("buildLinterBatches", () => {
 	});
 
 	test("splits a directory at the argv character cap", () => {
-		// Long names, so the cap bites well before the file count does.
-		const name = "z".repeat(240);
-		const files = Array.from({ length: 300 }, (_v, at) =>
+		// A batch spends argv on basenames, not whole paths -- the command runs
+		// from the shared working directory. So the character cap only binds
+		// before the file-count cap when basenames are far longer than any real
+		// filesystem permits: 400 files of even a 255-char basename is ~102k,
+		// barely over the 100k cap, and a realistic ~20-char basename puts 400
+		// files at ~8k. These names are deliberately unreal, to exercise the
+		// guard in isolation; in practice the file-count cap is what splits.
+		const name = "z".repeat(1000);
+		const files = Array.from({ length: 150 }, (_v, at) =>
 			path.join(synthetic, "long", `${name}-${at}.proto`),
 		);
 		const { batches } = buildLinterBatches(files, options());
@@ -742,6 +754,7 @@ describe("buildLinterBatches", () => {
 		for (const batch of batches) {
 			expect(argvChars(batch)).toBeLessThanOrEqual(MAX_BATCH_ARGV_CHARS);
 		}
+		// Proves the split was the character cap and not the file count.
 		expect(batches.every((b) => b.fileNames.length < MAX_BATCH_FILES)).toBe(
 			true,
 		);

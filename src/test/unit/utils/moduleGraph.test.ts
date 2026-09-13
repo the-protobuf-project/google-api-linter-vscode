@@ -64,9 +64,10 @@ function makeTree(files: Record<string, string>): string {
  * finds it. `files/` is the directory buf unpacks the module's protos into and
  * the only part the graph ever points `--proto-path` at.
  */
-function makeCache(
-	modules: Record<string, string[]>,
-): { dir: string; filesFor: (name: string, commit: string) => string } {
+function makeCache(modules: Record<string, string[]>): {
+	dir: string;
+	filesFor: (name: string, commit: string) => string;
+} {
 	const dir = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), "buf-cache-")),
 	);
@@ -85,6 +86,21 @@ const originalWorkspaceFolders = workspace.workspaceFolders;
 const originalFindFiles = workspace.findFiles;
 const originalGetWorkspaceFolder = workspace.getWorkspaceFolder;
 const originalEnv = { ...process.env };
+
+/**
+ * Sets or clears an environment variable.
+ *
+ * `process.env.X = undefined` does not clear X: node coerces the value to the
+ * string "undefined", so the variable stays set and every later read sees that
+ * literal. Clearing needs `delete`.
+ */
+function setEnv(key: string, value: string | undefined): void {
+	if (value === undefined) {
+		delete process.env[key];
+	} else {
+		process.env[key] = value;
+	}
+}
 
 /** Directories the extension host's own glob never descends into. */
 const SKIP_DIRS = new Set([
@@ -148,11 +164,8 @@ afterEach(() => {
 	workspace.workspaceFolders = originalWorkspaceFolders;
 	workspace.findFiles = originalFindFiles;
 	workspace.getWorkspaceFolder = originalGetWorkspaceFolder;
-	if (originalEnv.BUF_CACHE_DIR === undefined) {
-		process.env.BUF_CACHE_DIR = undefined;
-	} else {
-		process.env.BUF_CACHE_DIR = originalEnv.BUF_CACHE_DIR;
-	}
+	setEnv("BUF_CACHE_DIR", originalEnv.BUF_CACHE_DIR);
+	setEnv("XDG_CACHE_HOME", originalEnv.XDG_CACHE_HOME);
 	invalidateModuleGraphCache();
 });
 
@@ -195,13 +208,19 @@ modules:
 		expect(parsed.version).toBe("v2");
 		expect(parsed.entries).toEqual([
 			{ root: path.resolve("/repo/proto"), name: "buf.build/acme/core" },
-			{ root: path.resolve("/repo/vendor/external"), name: "buf.build/acme/vendor" },
+			{
+				root: path.resolve("/repo/vendor/external"),
+				name: "buf.build/acme/vendor",
+			},
 			{ root: "/repo", name: undefined },
 		]);
 	});
 
 	test("treats a modules entry with no path as the config's directory", () => {
-		const parsed = parseBufYaml("version: v2\nmodules:\n  - name: n\n", "/repo");
+		const parsed = parseBufYaml(
+			"version: v2\nmodules:\n  - name: n\n",
+			"/repo",
+		);
 		expect(parsed.entries).toEqual([{ root: "/repo", name: "n" }]);
 	});
 
@@ -234,9 +253,9 @@ modules:
 	});
 
 	test("falls back to one entry when modules is empty or all malformed", () => {
-		expect(parseBufYaml("version: v2\nmodules: []\n", "/repo").entries).toEqual([
-			{ root: "/repo", name: undefined },
-		]);
+		expect(parseBufYaml("version: v2\nmodules: []\n", "/repo").entries).toEqual(
+			[{ root: "/repo", name: undefined }],
+		);
 		expect(
 			parseBufYaml("version: v2\nmodules:\n  - 7\n  - null\n", "/repo").entries,
 		).toEqual([{ root: "/repo", name: undefined }]);
@@ -264,9 +283,9 @@ modules:
 	});
 
 	test("keeps only string deps", () => {
-		expect(parseBufYaml("deps:\n  - a\n  - 7\n  - null\n", "/repo").deps).toEqual([
-			"a",
-		]);
+		expect(
+			parseBufYaml("deps:\n  - a\n  - 7\n  - null\n", "/repo").deps,
+		).toEqual(["a"]);
 		expect(parseBufYaml("deps: nope\n", "/repo").deps).toEqual([]);
 	});
 });
@@ -307,22 +326,20 @@ describe("getBufModuleCacheRoot", () => {
 	const SEGMENT = path.join("v3", "modules", "b5");
 
 	test("honours BUF_CACHE_DIR above everything else", () => {
-		process.env.BUF_CACHE_DIR = "/tmp/explicit";
-		process.env.XDG_CACHE_HOME = "/tmp/xdg";
+		setEnv("BUF_CACHE_DIR", "/tmp/explicit");
+		setEnv("XDG_CACHE_HOME", "/tmp/xdg");
 		expect(getBufModuleCacheRoot()).toBe(path.join("/tmp/explicit", SEGMENT));
-		process.env.XDG_CACHE_HOME = originalEnv.XDG_CACHE_HOME;
 	});
 
 	test("falls back to XDG_CACHE_HOME, then the home directory", () => {
-		process.env.BUF_CACHE_DIR = undefined;
-		process.env.XDG_CACHE_HOME = "/tmp/xdg";
+		setEnv("BUF_CACHE_DIR", undefined);
+		setEnv("XDG_CACHE_HOME", "/tmp/xdg");
 		expect(getBufModuleCacheRoot()).toBe(path.join("/tmp/xdg", "buf", SEGMENT));
 
-		process.env.XDG_CACHE_HOME = undefined;
+		setEnv("XDG_CACHE_HOME", undefined);
 		expect(getBufModuleCacheRoot()).toBe(
 			path.join(os.homedir(), ".cache", "buf", SEGMENT),
 		);
-		process.env.XDG_CACHE_HOME = originalEnv.XDG_CACHE_HOME;
 	});
 });
 
@@ -354,9 +371,12 @@ describe("module discovery", () => {
 		useWorkspace(root);
 
 		const graph = await getModuleGraph();
-		expect(graph.modules().map((m) => m.root).sort()).toEqual(
-			[path.join(root, "one"), path.join(root, "two")].sort(),
-		);
+		expect(
+			graph
+				.modules()
+				.map((m) => m.root)
+				.sort(),
+		).toEqual([path.join(root, "one"), path.join(root, "two")].sort());
 		// The config's own directory is not a root when modules are declared.
 		expect(graph.forFile(path.join(root, "stray.proto"))).toBeUndefined();
 	});
@@ -369,7 +389,9 @@ describe("module discovery", () => {
 		useWorkspace(root);
 
 		const graph = await getModuleGraph();
-		expect(graph.modules().map((m) => m.root)).toEqual([path.join(root, "real")]);
+		expect(graph.modules().map((m) => m.root)).toEqual([
+			path.join(root, "real"),
+		]);
 	});
 
 	test("resolves a file to the longest matching module root", async () => {
@@ -397,9 +419,9 @@ describe("module discovery", () => {
 			"buf.build/acme/sibling",
 		);
 		// A file deep under the inner module still belongs to the inner module.
-		expect(
-			graph.forFile(path.join(root, "a/b/c/d/deep.proto"))?.name,
-		).toBe("buf.build/acme/inner");
+		expect(graph.forFile(path.join(root, "a/b/c/d/deep.proto"))?.name).toBe(
+			"buf.build/acme/inner",
+		);
 	});
 
 	test("scopes protoPathsFor to one module and unions them in allProtoPaths", async () => {
@@ -445,9 +467,12 @@ describe("module discovery", () => {
 		useWorkspace(root);
 
 		const graph = await getModuleGraph();
-		expect(graph.modules().map((m) => m.root).sort()).toEqual(
-			[path.join(root, "first"), path.join(root, "second")].sort(),
-		);
+		expect(
+			graph
+				.modules()
+				.map((m) => m.root)
+				.sort(),
+		).toEqual([path.join(root, "first"), path.join(root, "second")].sort());
 		expect(graph.forFile(path.join(root, "first/a.proto"))?.root).toBe(
 			path.join(root, "first"),
 		);
@@ -464,7 +489,9 @@ describe("module discovery", () => {
 
 		const graph = await getModuleGraph();
 		expect(graph.modules()).toHaveLength(2);
-		const first = graph.modules().find((m) => m.root === path.join(root, "first"));
+		const first = graph
+			.modules()
+			.find((m) => m.root === path.join(root, "first"));
 		// The buf.yaml wins, so the module keeps its declared name.
 		expect(first?.name).toBe("buf.build/acme/first");
 	});
@@ -477,7 +504,9 @@ describe("module discovery", () => {
 		useWorkspace(root);
 
 		const graph = await getModuleGraph();
-		expect(graph.modules().map((m) => m.root)).toEqual([path.join(root, "here")]);
+		expect(graph.modules().map((m) => m.root)).toEqual([
+			path.join(root, "here"),
+		]);
 	});
 
 	test("is empty when no workspace folder is open", async () => {
@@ -723,7 +752,12 @@ deps:
 	test("yields no dependency roots for an empty or malformed lock", async () => {
 		const cache = makeCache({ [GOOGLEAPIS]: ["8888bbbb"] });
 		process.env.BUF_CACHE_DIR = cache.dir;
-		for (const lock of ["", "version: v2\n", "version: v2\ndeps: []\n", "deps: [ : :\n"]) {
+		for (const lock of [
+			"",
+			"version: v2\n",
+			"version: v2\ndeps: []\n",
+			"deps: [ : :\n",
+		]) {
 			invalidateModuleGraphCache();
 			const root = makeTree({
 				"buf.yaml": "version: v2\n",
@@ -755,10 +789,9 @@ deps:
 		useWorkspace(root);
 
 		const graph = await getModuleGraph();
-		expect(graph.protoPathsFor(path.join(root, "outer/inner/b.proto"))).toEqual([
-			path.join(root, "outer/inner"),
-			cache.filesFor(GOOGLEAPIS, "9999dddd"),
-		]);
+		expect(graph.protoPathsFor(path.join(root, "outer/inner/b.proto"))).toEqual(
+			[path.join(root, "outer/inner"), cache.filesFor(GOOGLEAPIS, "9999dddd")],
+		);
 		expect(graph.protoPathsFor(path.join(root, "outer/a.proto"))).toEqual([
 			path.join(root, "outer"),
 			cache.filesFor(PROTOVALIDATE, "9999cccc"),
@@ -791,7 +824,9 @@ deps:
 		useWorkspace(root);
 
 		const all = (await getModuleGraph()).allProtoPaths();
-		expect(all.filter((p) => p === cache.filesFor(GOOGLEAPIS, "eeee7777"))).toHaveLength(1);
+		expect(
+			all.filter((p) => p === cache.filesFor(GOOGLEAPIS, "eeee7777")),
+		).toHaveLength(1);
 		expect(all).toHaveLength(3);
 	});
 });
@@ -842,14 +877,21 @@ describe("graph caching", () => {
 		expect(after.allProtoPaths()).toEqual([path.join(root, "second")]);
 	});
 
-	test("reuses the graph when invalidation finds nothing changed", async () => {
+	test("rebuilds to an equal graph when invalidation finds nothing changed", async () => {
 		const root = makeTree({ "buf.yaml": "version: v1\n", "a.proto": "" });
 		useWorkspace(root);
 
 		const first = await getModuleGraph();
 		invalidateModuleGraphCache();
-		// Manifests are re-stamped, but identical mtimes mean no rebuild.
-		expect(await getModuleGraph()).toBe(first);
+		const second = await getModuleGraph();
+
+		// `invalidateModuleGraphCache` drops the cached graph outright, so the
+		// next call always rebuilds -- the mtime-key comparison inside
+		// `getModuleGraph` only spares a rebuild once the fast TTL has expired
+		// with the entry still present, which explicit invalidation precludes.
+		// The guarantee here is therefore equal content, not object identity.
+		expect(second).not.toBe(first);
+		expect(second.allProtoPaths()).toEqual(first.allProtoPaths());
 	});
 
 	test("shares one build between concurrent callers", async () => {

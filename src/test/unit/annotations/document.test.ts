@@ -206,11 +206,13 @@ describe("accessors", () => {
 		]);
 		// Offsets cover the name alone, so a hover lands on the segment under the
 		// cursor rather than on the whole accessor chain.
+		expect(model.bodyFields.map((f) => text.slice(f.start, f.end))).toEqual([
+			"string",
+			"pattern",
+		]);
 		expect(
-			model.bodyFields.map((f) => text.slice(f.start, f.end)),
-		).toEqual(["string", "pattern"]);
-		expect(model.bodyFields.every((f) => f.optionFqn === "buf.validate.field"))
-			.toBe(true);
+			model.bodyFields.every((f) => f.optionFqn === "buf.validate.field"),
+		).toBe(true);
 	});
 
 	test("records an accessor chain that is never assigned", () => {
@@ -280,7 +282,9 @@ describe("option bodies", () => {
 		const model = analyzeProtoDocument(
 			`option (x.v1.f) = { a { b { c { d { e { f: 1 } } } } } };\n`,
 		);
-		expect(model.bodyFields.at(-1)?.path).toEqual([
+		// Indexed rather than `.at(-1)`: tsconfig targets ES2020, which predates
+		// `Array.prototype.at`.
+		expect(model.bodyFields[model.bodyFields.length - 1]?.path).toEqual([
 			"a",
 			"b",
 			"c",
@@ -315,7 +319,8 @@ describe("option bodies", () => {
 	});
 
 	test("does not close a body on a brace inside a string", () => {
-		const model = analyzeProtoDocument(`option (x.v1.f) = { name: "a } b" c: 1 };
+		const model =
+			analyzeProtoDocument(`option (x.v1.f) = { name: "a } b" c: 1 };
 message After {}
 `);
 		expect(model.bodyFields.map((f) => f.path)).toEqual([["name"], ["c"]]);
@@ -369,10 +374,12 @@ describe("contextAt", () => {
 		expect(
 			contextAt(`service S {\n  rpc Get(Req) returns (Res) {\n    ▮\n  }\n}\n`),
 		).toEqual({ kind: "statement", target: "Method" });
-		expect(contextAt(`message M {\n  oneof choice {\n    ▮\n  }\n}\n`)).toEqual({
-			kind: "statement",
-			target: "Oneof",
-		});
+		expect(contextAt(`message M {\n  oneof choice {\n    ▮\n  }\n}\n`)).toEqual(
+			{
+				kind: "statement",
+				target: "Oneof",
+			},
+		);
 	});
 
 	test("reports the innermost of two nested messages", () => {
@@ -417,9 +424,7 @@ describe("contextAt", () => {
 	});
 
 	test("reports the option body, its annotation and its path", () => {
-		expect(
-			contextAt(`message M {\n  option (x.v1.f) = { ▮ };\n}\n`),
-		).toEqual({
+		expect(contextAt(`message M {\n  option (x.v1.f) = { ▮ };\n}\n`)).toEqual({
 			kind: "optionBody",
 			target: "Message",
 			optionFqn: "x.v1.f",
@@ -455,9 +460,9 @@ describe("contextAt", () => {
 	});
 
 	test("reports nothing at statement level inside an extend block", () => {
-		expect(
-			contextAt(`extend google.protobuf.FileOptions {\n  ▮\n}\n`),
-		).toEqual({ kind: "none" });
+		expect(contextAt(`extend google.protobuf.FileOptions {\n  ▮\n}\n`)).toEqual(
+			{ kind: "none" },
+		);
 	});
 
 	test("includes the offset immediately after an opening brace", () => {
@@ -477,7 +482,9 @@ describe("contextAt", () => {
 		// The `{` in the comment must not open a body, and the cursor inside the
 		// comment still belongs to the message.
 		expect(
-			contextAt(`message M {\n  // option (x.v1.f) = { ▮\n  string s = 1;\n}\n`),
+			contextAt(
+				`message M {\n  // option (x.v1.f) = { ▮\n  string s = 1;\n}\n`,
+			),
 		).toEqual({ kind: "statement", target: "Message" });
 		expect(
 			contextAt(`message M {\n  /* option (x.v1.f) = { */\n  ▮\n}\n`),
@@ -555,7 +562,8 @@ message M {
 	test("keeps parsing after an option with a non-annotation body", () => {
 		// `option features = {...}` is not a custom option, so the body is not an
 		// option body; the declarations after it must still be seen.
-		const model = analyzeProtoDocument(`option features = { field_presence: EXPLICIT };
+		const model =
+			analyzeProtoDocument(`option features = { field_presence: EXPLICIT };
 message M {
   option (x.v1.m) = 1;
 }
@@ -651,15 +659,16 @@ extend google.protobuf.MethodOptions {
 }
 `;
 		const model = analyzeProtoDocument(text);
-		expect(
-			model.declarations.map((d) => [d.name, d.target, d.number]),
-		).toEqual([
-			["thing", "Method", 5],
-			["tags", "Method", 6],
+		expect(model.declarations.map((d) => [d.name, d.target, d.number])).toEqual(
+			[
+				["thing", "Method", 5],
+				["tags", "Method", 6],
+			],
+		);
+		expect(model.declarations.map((d) => text.slice(d.start, d.end))).toEqual([
+			"thing",
+			"tags",
 		]);
-		expect(
-			model.declarations.map((d) => text.slice(d.start, d.end)),
-		).toEqual(["thing", "tags"]);
 		expect(model.declarations[0].extendee).toBe(
 			"google.protobuf.MethodOptions",
 		);
@@ -715,7 +724,7 @@ extend google.protobuf.FileOptions {
 
 	test("reads a field with no cardinality keyword and through CRLF", () => {
 		const model = analyzeProtoDocument(
-			'extend google.protobuf.FileOptions {\r\n  string bare = 4;\r\n}\r\n',
+			"extend google.protobuf.FileOptions {\r\n  string bare = 4;\r\n}\r\n",
 		);
 		expect(model.declarations[0]).toMatchObject({
 			name: "bare",

@@ -52,8 +52,8 @@ import {
 	MAX_SECTION_SYMBOLS,
 	packageStem,
 	packageVersion,
-	scanWorkspaceProto,
 	SECTION_GROUPING_THRESHOLD,
+	scanWorkspaceProto,
 	splitRpcDetail,
 	toLocationItem,
 	toRpcLocationItem,
@@ -313,7 +313,8 @@ const RE_IMPORT = /^import\s+(?:public\s+|weak\s+)?"([^"]+)"\s*;/;
 const RE_TOP = /^(message|enum|service)\s+([A-Za-z_]\w*)\s*\{/;
 const RE_RPC =
 	/^\s+rpc\s+([A-Za-z_]\w*)\s*\(\s*(?:stream\s+)?([.\w]+)\s*\)\s*returns\s*\(\s*(?:stream\s+)?([.\w]+)\s*\)/;
-const RE_FIELD = /^\s+(?:repeated\s+|optional\s+)?([.\w]+)\s+([a-z_]\w*)\s*=\s*\d+/;
+const RE_FIELD =
+	/^\s+(?:repeated\s+|optional\s+)?([.\w]+)\s+([a-z_]\w*)\s*=\s*\d+/;
 
 /**
  * One proto read into a file spec: package, imports, top-level declarations and
@@ -481,7 +482,12 @@ function mixedIndex(): FakeIndex {
 				{ name: "Alpha", kind: "message" },
 				{ name: "Kind", kind: "enum" },
 				{ name: "Svc", kind: "service" },
-				{ name: "Do", kind: "rpc", parent: "Svc", detail: "(Req) returns (Res)" },
+				{
+					name: "Do",
+					kind: "rpc",
+					parent: "Svc",
+					detail: "(Req) returns (Res)",
+				},
 			],
 		},
 		{
@@ -831,14 +837,16 @@ describe("toLocationItem", () => {
 	});
 
 	test("defaults to a leaf", () => {
-		expect(toLocationItem(index, symbol, "enum", "symbol-enum")?.expandable).toBe(
-			false,
-		);
+		expect(
+			toLocationItem(index, symbol, "enum", "symbol-enum")?.expandable,
+		).toBe(false);
 	});
 
 	test("returns nothing when the file id is stale", () => {
 		const stale: IndexedSymbol = { ...symbol, fileId: 404 };
-		expect(toLocationItem(index, stale, "message", "symbol-class")).toBeUndefined();
+		expect(
+			toLocationItem(index, stale, "message", "symbol-class"),
+		).toBeUndefined();
 	});
 });
 
@@ -1136,11 +1144,11 @@ describe("annotation collection", () => {
 	test("falls back to the fqn when an example has no prose beside it", () => {
 		const item = annotationLocationItem(
 			index,
-			annotation("x.v1.thing", "File", { example: "option (x.v1.thing) = {};" }),
+			annotation("x.v1.thing", "File", {
+				example: "option (x.v1.thing) = {};",
+			}),
 		);
-		expect(item?.documentation).toBe(
-			"x.v1.thing\n\noption (x.v1.thing) = {};",
-		);
+		expect(item?.documentation).toBe("x.v1.thing\n\noption (x.v1.thing) = {};");
 	});
 
 	test("picks an icon from the target, never from the name", () => {
@@ -1174,7 +1182,10 @@ describe("annotation collection", () => {
 
 	test("returns nothing when the descriptor's file id is stale", () => {
 		expect(
-			annotationLocationItem(index, annotation("x.v1.a", "File", { fileId: 7 })),
+			annotationLocationItem(
+				index,
+				annotation("x.v1.a", "File", { fileId: 7 }),
+			),
 		).toBeUndefined();
 	});
 });
@@ -1470,10 +1481,7 @@ describe("scanWorkspaceProto", () => {
 	});
 
 	test("reports truncation when any one section hit its cap", async () => {
-		const scan = await scanWorkspaceProto(
-			packagedIndex(["x.v1.t"], 5),
-			2,
-		);
+		const scan = await scanWorkspaceProto(packagedIndex(["x.v1.t"], 5), 2);
 		expect(scan.messages).toHaveLength(2);
 		expect(scan.truncated).toBe(true);
 	});

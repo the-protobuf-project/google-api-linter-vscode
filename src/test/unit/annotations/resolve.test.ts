@@ -538,9 +538,11 @@ describe("against the real corpus", () => {
 				return;
 			}
 			const registry = await referenceRegistry();
-			const files = listProtos(root)
-				.filter((file) => file.endsWith("service.proto"))
-				.slice(0, 40);
+			// Not filtered to service.proto: those carry only `google.api.*`
+			// options, which would leave the namespace assertion below vacuous.
+			// A plain slice of the tree mixes service files with the type and
+			// resource files that also carry `buf.validate.*`.
+			const files = listProtos(root).sort().slice(0, 60);
 			const namespaces = new Set<string>();
 			let total = 0;
 			for (const file of files) {

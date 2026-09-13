@@ -14,7 +14,14 @@
  * `deactivate` compiles, and it must stay one.
  */
 
-import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+	afterAll,
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	test,
+} from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -225,7 +232,10 @@ describe("readBufModuleRoots", () => {
 
 	test("normalises a path that climbs out of the directory", () => {
 		expect(
-			readBufModuleRoots("version: v2\nmodules:\n  - path: ../shared\n", "/repo/sub"),
+			readBufModuleRoots(
+				"version: v2\nmodules:\n  - path: ../shared\n",
+				"/repo/sub",
+			),
 		).toEqual([path.resolve("/repo/shared")]);
 	});
 
