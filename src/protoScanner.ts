@@ -268,13 +268,20 @@ export function toRpcLocationItem(
 	index: ProtoIndex,
 	symbol: IndexedSymbol,
 ): LocationItem | undefined {
-	const item = toLocationItem(index, symbol, symbol.detail ?? "rpc", "symbol-method");
+	const item = toLocationItem(
+		index,
+		symbol,
+		symbol.detail ?? "rpc",
+		"symbol-method",
+	);
 	if (!item) {
 		return undefined;
 	}
 	const owner = symbol.parentFqn
 		? lastSegment(symbol.parentFqn)
-		: lastSegment(symbol.fqn.slice(0, Math.max(0, symbol.fqn.lastIndexOf("."))));
+		: lastSegment(
+				symbol.fqn.slice(0, Math.max(0, symbol.fqn.lastIndexOf("."))),
+			);
 	item.label = owner ? `${owner}.${symbol.name}` : symbol.name;
 	item.rpcName = item.label;
 	return item;
@@ -345,7 +352,10 @@ export function collectAnnotationNamespaces(
 ): AnnotationNamespace[] {
 	const counts = new Map<string, number>();
 	for (const descriptor of index.annotations().all()) {
-		counts.set(descriptor.namespace, (counts.get(descriptor.namespace) ?? 0) + 1);
+		counts.set(
+			descriptor.namespace,
+			(counts.get(descriptor.namespace) ?? 0) + 1,
+		);
 	}
 	return [...counts.entries()]
 		.map(([namespace, count]) => ({ namespace, count }))
@@ -547,7 +557,9 @@ export async function scanWorkspaceProto(
 			annotations.push(item);
 		}
 	}
-	annotations.sort((a, b) => (a.fqn ?? a.label).localeCompare(b.fqn ?? b.label));
+	annotations.sort((a, b) =>
+		(a.fqn ?? a.label).localeCompare(b.fqn ?? b.label),
+	);
 
 	return {
 		services,
