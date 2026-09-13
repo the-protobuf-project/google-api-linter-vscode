@@ -148,6 +148,29 @@
 					"type": "boolean",
 					"default": false,
 					"description": "If true, log full linter settings to the output channel on every lint. When false, settings are logged only when they change (or on first lint)."
+				},
+				"gapi.index.maxMemoryMB": {
+					"type": "number",
+					"default": 150,
+					"minimum": 32,
+					"description": "Soft memory ceiling for the proto symbol index, in MB. Above this the index drops detail (doc comments, field-level symbols) rather than growing. Raise it for very large monorepos; lower it on constrained machines."
+				},
+				"gapi.index.maxFiles": {
+					"type": "number",
+					"default": 20000,
+					"minimum": 0,
+					"description": "Maximum .proto files to index. Above this, workspace-wide features (Go to Symbol, Find References, Rename) switch off and per-file features keep working, rather than the editor stalling."
+				},
+				"gapi.index.enabled": {
+					"type": "boolean",
+					"default": true,
+					"description": "Build a workspace symbol index. Disabling falls back to per-file features only."
+				},
+				"gapi.protoView.maxFiles": {
+					"type": "number",
+					"default": 5000,
+					"minimum": 0,
+					"description": "Maximum .proto files the Proto view will enumerate. Above this, sections show a summary instead of listing every symbol."
 				}
 			}
 		},
