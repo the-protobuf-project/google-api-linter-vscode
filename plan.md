@@ -118,11 +118,11 @@ Interfaces are defined up front so every track builds against them concurrently 
 
 ### Phase 1 — the index
 
-- [ ] **1.1** (D) Symbol index: gitignore-aware walk, `fs.readFile`, parse, **discard text**, packed
-      arrays + interned strings. Budget: ≤150 MB for 9,280 files.
-- [ ] **1.2** (D) Incremental re-index on a single `FileSystemWatcher`; patch one file's slice.
-- [ ] **1.3** (D) Memory ladder: pre-flight file/byte count picks starting tier; degrade
-      full → reduced → on-demand → refuse, each with a user-visible reason.
+- [x] **1.1** (D) Symbol index. *Done — 9,257 files / 76,346 symbols / 495 ms / **25.5 MB
+      retained** against 24.9 MB of source read.*
+- [x] **1.2** (D) Incremental re-index. *Done — one file update is 0–1 ms, no rebuild.*
+- [x] **1.3** (D) Memory ladder. *Done — all three tiers exercised; each reason names the limit,
+      the observed size and what was switched off.*
 - [x] **1.4** (G) Rewrite five providers to read the index. *Done — zero `openTextDocument` call
       sites across all five, stricter than the rule required.*
 - [x] **1.5** (G) Index by **fully-qualified** name, then re-enable cross-file rename. *Done —
@@ -141,17 +141,16 @@ Interfaces are defined up front so every track builds against them concurrently 
 - [x] **1a.4** (F) Target-aware completion; snippets generated from the message shape. *Done.*
 - [x] **1a.5** (F) Diagnostics: unknown annotation, wrong target, unknown body field, missing
       import, per-file extension-number collision. *Done.*
-- [~] **1a.6** (G) Hardcoded MCP removed from `protoScanner.ts` and `completionProvider.ts`.
-      *`snippets/proto3.json` still carries eight stale `mcp.protobuf.*` snippets — integrator to
-      delete once Track F's derived completions land.*
+- [x] **1a.6** (G) Hardcoded MCP removed everywhere. *All nine stale snippets deleted, including
+      the `mcp/protobuf/annotations.proto` import snippet.*
 
 ### Integration
 
-- [ ] **I.1** Register new providers in `extension.ts`; wire the index lifecycle.
-- [ ] **I.2** `package.json`: semantic token contributions, new settings
-      (`gapi.index.maxMemoryMB`, `gapi.index.maxFiles`), drop removed deps.
-- [ ] **I.3** Full verify: `typecheck`, `format:check`, `lint`, `compile`, plus a measured
-      before/after on protobuf-fhir.
+- [x] **I.1** Register new providers in `extension.ts`; wire the index lifecycle. *Done.*
+- [x] **I.2** `package.json`: semantic token contributions, budget settings, three dead
+      `vscode-language*` deps dropped. *Done.*
+- [x] **I.3** Full verify. *`typecheck`, `format:check`, `lint` (0 errors), `compile` all pass;
+      the 790 KB bundle parses. Measured results below.*
 
 ---
 
@@ -230,6 +229,29 @@ scope lists are TextMate fallbacks, so no user configuration is needed. The `Unk
 
 ---
 
+## Results
+
+Measured on protobuf-fhir (9,257 indexed protos) after the rewrite.
+
+| | Before | After |
+|---|---|---|
+| Workspace symbol index | ~60 GB RSS, retained for the session | **25.5 MB** retained, 495 ms |
+| Go to Symbol | reopened all 9,280 docs **per keystroke** | index lookup, capped at 500 results |
+| Format every proto | 3.4 h (9,280 serial processes) | one `buf format -w` per module |
+| Workspace lint | 21.9 CPU-hours of whole-workspace `buf build` | one batched pass + one debounced `buf build` |
+| Resolve buf deps | 1.7 s blocking `spawnSync`, failed on this repo | reads `buf.lock`, no subprocess |
+| Rename `Address` | **154 files rewritten silently** | 1 file |
+| Custom annotations | 9 hardcoded `mcp.protobuf.*` entries, all dead | 59 derived, 11 namespaces, 53 ms |
+
+`openTextDocument` call sites in bulk paths: **zero**. The one remaining call opens the single file
+behind a clicked Proto view node.
+
+**Correctness, not just speed.** 92 symbols in this corpus share the bare name `SubjectChoice`;
+`referencesTo()` on one fully-qualified name returns 1 reference in 1 file. Simple-name matching
+returned all 92, which is what made Rename destructive.
+
+---
+
 ## Verification
 
 Run from the extension directory:
@@ -267,3 +289,5 @@ checkout is compiled into the FHIR module.
   Track F's VS Code providers. Both re-dispatched. Then integration (I.1–I.3).
 - 2026-09-13 — Track F fully landed: semantic tokens, hover, completion, diagnostics. Only Track D
   (index core) and integration remain.
+- 2026-09-13 — Track D landed (index core) and integration complete. All of Phase 0, Phase 1 and
+  Phase 1a are done. Remaining optional work: Phase 2 (Rust sidecar) and Phase 3, neither started.
