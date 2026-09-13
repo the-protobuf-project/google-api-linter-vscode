@@ -96,7 +96,7 @@ Interfaces are defined up front so every track builds against them concurrently 
 - [ ] **0.2** (B) `formatAllProtos` → one `buf format -w` per module, not per file.
 - [x] **0.3** (A) Batch `lintWorkspace` into one api-linter process per module, chunked under ARG_MAX. *Done.*
 - [ ] **0.4** (C) `spawnSync` → async `spawn`. Removes the event-loop freeze.
-- [ ] **0.5** (E) Proto view: no scan on activation, lazy per-section, file-count ceiling.
+- [x] **0.5** (E) Proto view: no scan on activation, lazy per-section, file-count ceiling. *Done.*
 - [x] **0.6** (H) Delete `server.ts` + `extension-lsp.ts`. *Done — both were unreachable. The three
       `vscode-language*` dependencies they pulled in are removed at integration, in one pass with the
       lockfile, to avoid racing concurrent agents.*
@@ -108,14 +108,14 @@ Interfaces are defined up front so every track builds against them concurrently 
 - [ ] **1.2** (D) Incremental re-index on a single `FileSystemWatcher`; patch one file's slice.
 - [ ] **1.3** (D) Memory ladder: pre-flight file/byte count picks starting tier; degrade
       full → reduced → on-demand → refuse, each with a user-visible reason.
-- [ ] **1.4** (G) Rewrite five providers to read the index; `openTextDocument` reserved for the
-      active editor only.
-- [ ] **1.5** (G) Index by **fully-qualified** name (file `package` + import resolution), then
-      re-enable cross-file rename.
+- [x] **1.4** (G) Rewrite five providers to read the index. *Done — zero `openTextDocument` call
+      sites across all five, stricter than the rule required.*
+- [x] **1.5** (G) Index by **fully-qualified** name, then re-enable cross-file rename. *Done —
+      verified against the reference repo: renaming `Address` touches 1–2 files, was 154.*
 - [ ] **1.6** (C) Module graph: discover *every* `buf.yaml` and `buf.work.yaml`; map
       `moduleRoot → {roots, deps, lintConfig}`; resolve each file to its module by longest prefix.
 - [ ] **1.7** (C) Dependency resolution via `buf.lock` → module cache. Delete `runBufExport`.
-- [ ] **1.8** (E) Proto view reads the index instead of scanning.
+- [x] **1.8** (E) Proto view reads the index instead of scanning. *Done.*
 
 ### Phase 1a — annotations
 
@@ -127,7 +127,9 @@ Interfaces are defined up front so every track builds against them concurrently 
 - [ ] **1a.4** (F) Target-aware completion; snippets generated from the message shape.
 - [ ] **1a.5** (F) Diagnostics: unknown annotation, wrong target, unknown body field, missing import,
       per-file extension-number collision.
-- [ ] **1a.6** (G) Remove hardcoded MCP from `protoScanner.ts` / `completionProvider.ts` / snippets.
+- [~] **1a.6** (G) Hardcoded MCP removed from `protoScanner.ts` and `completionProvider.ts`.
+      *`snippets/proto3.json` still carries eight stale `mcp.protobuf.*` snippets — integrator to
+      delete once Track F's derived completions land.*
 
 ### Integration
 
@@ -162,6 +164,32 @@ api-linter pass overwrite each other. Diagnostic `source` strings are unchanged
 
 ---
 
+### From Track G (providers) — landed
+
+- All five constructors take `ProtoIndex` as an **optional trailing** parameter, so `extension.ts`
+  compiles untouched and can be wired incrementally. Pass the **same** instance to each; every
+  provider checks `stats().tier === "onDemand"` and degrades itself.
+- Wire at `extension.ts`: `ProtoDefinitionProvider`, `ProtoReferenceProvider`, `ProtoRenameProvider`,
+  `ProtoWorkspaceSymbolProvider`, `ProtoCompletionProvider`.
+- Track D's incremental re-index matters for rename safety: a stale index degrades safely but
+  silently, so re-index on save.
+- With MCP entries deleted from `completionProvider`, **nothing offers custom option completions
+  until Track F's provider is registered.**
+- User-visible: Go to Symbol caps at 500, import completion at 200; definition now lands on the
+  symbol name rather than column 0.
+
+### From Track E (Proto view) — landed
+
+- `registerProtoView(..., resolveTypeToLocation, index?, fileCeiling?)` — both new args optional and
+  trailing. Wire `gapi.protoView.maxFiles` to the 8th; nothing in the file reads configuration itself.
+- The provider is now disposable and self-registers into `context.subscriptions` — do not dispose it
+  separately.
+- The `mcp` section and `mcpSubsection` node kind are gone, replaced by a derived `annotations`
+  section. Any `package.json` menu/when-clause referencing those ids must be updated. Command ids are
+  unchanged.
+
+---
+
 ## Verification
 
 Run from the extension directory:
@@ -190,3 +218,5 @@ checkout is compiled into the FHIR module.
   Tracks A and E committed as WIP rather than discarded. Re-dispatched in a wave of 4, then 1,
   with tighter scopes so each lands sooner and can be committed.
 - 2026-09-13 — Track A landed: per-file `buf build` removed, workspace lint batched.
+- 2026-09-13 — Tracks G and E landed: five providers off `openTextDocument` entirely, cross-file
+  rename restored safely on fully-qualified names, Proto view lazy and index-backed.
