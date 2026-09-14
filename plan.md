@@ -207,23 +207,34 @@ it against the suite below.
       buf module cache rather than from invented protos, cached once per process, and skip rather
       than fail when that corpus is absent. Unit tests are typechecked by `tsc` via `@types/bun`,
       not merely executed. CI now runs them.*
-- [x] **2.1** Index core — `parser` done (54 tests); `protoIndex`, `store`, `walk`, `strings` not
-      reached before the session limit.
-- [~] **2.2** Annotation extraction — `extractor`, `registry`, `scan`. *`extractor.test.ts` landed
+- [x] **2.1** Index core — `parser` (54 tests), `protoIndex` (63), `store` (24), `walk` (31),
+      `strings` (24). *All four of `protoIndex`'s arriving failures were wrong test expectations,
+      not product bugs. The memory-ladder test could not be written as posed: `checkMemory`
+      (`protoIndex.ts:1026`) measures `heapUsed - heapBase`, which includes the transient read-and-
+      parse churn of the file just ingested — about 9.5x the text size — while the `reduced`/`full`
+      window is only 0.9x–2.4x wide, so no single-file fixture can ever settle on `reduced`. It now
+      spreads 2.66 MB over 12 files at `concurrency: 1`. A neighbouring degrade test was passing by
+      heap luck and is de-flaked onto the same fixture. Corpus truth: 76,346 symbols over 9,257
+      files — 11,825 declarations plus 64,521 members — not the >100,000 a dead track had guessed.*
+- [x] **2.2** Annotation extraction — `extractor`, `registry`, `scan`. *`extractor.test.ts` landed
       (712 lines, 50 tests) and found four real bugs, all fixed: leading-dot type references and
       extendees matched nothing and were dropped silently; `ExtractedFile.imports` was always empty
       because `RE_IMPORT` ran on the string-blanked line; and `leadingComment` ate the tab that marks
       a godoc example, truncating the example and leaking code into the prose of 17 annotations.
-      `registry.test.ts` and `scan.test.ts` still to write. Single-line `extend`/`message`/`enum`
-      blocks remain a documented limitation — the scanner is line-based and `buf format` always
-      expands them.*
+      Single-line `extend`/`message`/`enum` blocks remain a documented limitation — the scanner is
+      line-based and `buf format` always expands them.*
 - [x] **2.3** Buffer model — `document`, `resolve`. *104 tests.*
 - [x] **2.4** Completion — `completion`. *Landed.*
-- [~] **2.5** Highlighting — `semanticTokens` done; `markdown`, `hover`, `diagnostics` not reached.
-- [~] **2.6** Proto view — `protoScanner` done (1,649 lines); `protoView` not reached.
-- [~] **2.7** Module resolution — `moduleGraph` and `bufConfigReader` done; `protoImportRoots`
-      and `protoParser` not reached.
-- [~] **2.8** Lint pipeline — `linterUtils` done (58 tests); `linterProvider` not reached.
+- [x] **2.5** Highlighting — `semanticTokens`, `markdown`, `hover`, `diagnostics`.
+- [x] **2.6** Proto view — `protoScanner` (1,649 lines) and `protoView` (71 tests over 14 describes,
+      including the `registerProtoView` host wiring: view id, collapse button, command ids, watcher
+      patterns and subscription teardown order).
+- [x] **2.7** Module resolution — `moduleGraph`, `bufConfigReader`, `protoImportRoots` (39) and
+      `configReader` (40). *`protoParser` remains: its test file is written but carries eight
+      skipped tests, the largest single defect cluster in the suite (see below).*
+- [x] **2.8** Lint pipeline — `linterUtils` (58 tests) and `linterProvider` (61). *Child processes
+      are faked at the `node:child_process` seam rather than by shelling out, so the file runs in
+      ~2.2 s and works on the Windows CI leg.*
 
 **Ownership during 2.1–2.8:** each track owns only its own test files. Product code under `src/` is
 off-limits to the tracks; a track that finds a bug writes a `test.skip` with the expected behaviour
@@ -419,3 +430,39 @@ is settled.
   Remaining: `protoIndex`/`store`/`walk`/`strings`, `registry`/`scan`, `markdown`/`hover`/
   `diagnostics`, `protoView`, `protoImportRoots`/`protoParser`, `linterProvider`. Eleven skipped
   tests document suspected defects awaiting triage.
+- 2026-09-14 — Phase 2 complete. The last four tracks landed: index core remainder, proto view,
+  lint provider, and proto import roots plus `configReader`. **The suite is 1,132 tests — 1,113
+  pass, 19 skip, 0 fail** across 26 files, typecheck clean, biome clean over all 86 files. The
+  extension went from 157 lines of test against 17,928 lines of source to roughly 1:1.
+
+  Three harness traps cost more than any product bug, and all three are the same shape — state that
+  leaks in from the machine rather than failing loudly:
+
+  1. `process.env.X = undefined` sets the string `"undefined"` rather than clearing the variable.
+  2. `os.homedir()` ignores a mutated `HOME` under Bun — it resolves once at startup from the passwd
+     entry. A track lost 11 tests to assertions that were silently picking up the developer's real
+     `~/.gapi/*` and `~/.cache/buf`. Use `spyOn(os, "homedir")`.
+  3. Bare `bun test` picked up stale compiled JS under `out/` and reported 66 failures that did not
+     exist; those stale copies also mutate `BUF_CACHE_DIR` without restoring it, which knocked over
+     the real `moduleGraph` test in full runs only. `out/` has been deleted. Always scope to
+     `bun test src`.
+
+  The "land one complete file before broadening" instruction is what made this wave survivable. One
+  track still died to a session limit, mid-way through the `registerProtoView` wiring tests, but it
+  had written 2,293 lines first and the only damage was six missing imports; the file recovered
+  whole at 71 passing tests. Keep that instruction in any future fan-out.
+
+  **Open defect list — 19 skipped tests, each documenting expected behaviour rather than enshrining
+  the bug.** The cluster worth attention is `src/utils/protoParser.ts` with eight: block comments
+  and string literals are not respected, map fields are not listed, field and rpc types are not
+  collected, and the leading dot is mishandled again. That is the fifth module with the leading-dot
+  defect. Singles of note: `linterProvider.ts:86-102` — `dispose()` does not cancel an in-flight
+  per-file lint, so its `close` handler writes to a `DiagnosticCollection` that `extension.ts` has
+  already disposed, and the throw escapes as an unhandled rejection; and `walk.ts:113` checks the
+  file ceiling after the push, so `maxFiles: 0` lists one file (not reachable through
+  `ProtoIndexImpl`, which always walks with `maxFiles + 1`).
+
+  **Performance finding, not a correctness one:** `configReader.ts:143,172` re-runs a workspace-wide
+  `findFiles("**/workspace.protobuf.yaml")` on every proto-path request, uncached — only the module
+  graph is cached. On a 9,280-proto workspace that is precisely the cost class the rewrite existed
+  to delete.

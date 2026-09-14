@@ -13,6 +13,7 @@
  */
 
 import * as fsp from "node:fs/promises";
+import * as path from "node:path";
 
 /**
  * Mirrors `vscode.Position`.
@@ -110,12 +111,22 @@ export class Range {
 	}
 }
 
-/** Mirrors `vscode.Location`. */
+/**
+ * Mirrors `vscode.Location`, including the `Position` overload: the real class
+ * widens a bare position into an empty range, so callers that pass one still
+ * read `location.range.start`.
+ */
 export class Location {
+	readonly range: Range;
 	constructor(
 		readonly uri: Uri,
-		readonly range: Range,
-	) {}
+		rangeOrPosition: Range | Position,
+	) {
+		this.range =
+			rangeOrPosition instanceof Position
+				? new Range(rangeOrPosition, rangeOrPosition)
+				: rangeOrPosition;
+	}
 }
 
 /** Minimal `vscode.Uri`: enough to key a document and print a path. */
@@ -130,11 +141,26 @@ export class Uri {
 	static parse(value: string): Uri {
 		return new Uri(value.replace(/^file:\/\//, ""));
 	}
+	/** Joins path segments onto a uri, as `vscode.Uri.joinPath` does. */
+	static joinPath(base: Uri, ...segments: string[]): Uri {
+		return new Uri(path.join(base.fsPath, ...segments), base.scheme);
+	}
 	get path(): string {
 		return this.fsPath;
 	}
 	toString(): string {
 		return `${this.scheme}://${this.fsPath}`;
+	}
+	/** Always empty: the extension only ever constructs file uris. */
+	readonly authority = "";
+	readonly query = "";
+	readonly fragment = "";
+	/** Mirrors `vscode.Uri.with`; the callers only ever change scheme or path. */
+	with(change: { scheme?: string; path?: string }): Uri {
+		return new Uri(change.path ?? this.fsPath, change.scheme ?? this.scheme);
+	}
+	toJSON(): object {
+		return { scheme: this.scheme, path: this.fsPath };
 	}
 }
 
@@ -365,6 +391,12 @@ export const SymbolKind = {
 	Struct: 22,
 } as const;
 
+export const ProgressLocation = {
+	SourceControl: 1,
+	Window: 10,
+	Notification: 15,
+} as const;
+
 /** Never-cancelled token, the common case in a unit test. */
 export const CancellationTokenNone = {
 	isCancellationRequested: false,
@@ -400,6 +432,9 @@ export const workspace = {
 			return { type: stat.isDirectory() ? 2 : 1, size: stat.size };
 		},
 	},
+	/** Watches nothing; a test assigns its own factory to capture the watcher. */
+	createFileSystemWatcher: (pattern: string): FileSystemWatcher =>
+		new FileSystemWatcher(pattern),
 };
 
 export const window = {
@@ -410,6 +445,30 @@ export const window = {
 		dispose() {},
 		show() {},
 	}),
+	/**
+	 * Runs the task straight away and returns what it returns. The real one
+	 * wraps it in a notification, which is the extension host's business; a test
+	 * only needs the work inside the callback to happen, and to be able to await
+	 * it. The progress object accepts reports and discards them.
+	 */
+	withProgress: <T>(
+		_options: { location?: number; title?: string; cancellable?: boolean },
+		task: (
+			progress: {
+				report(value: { message?: string; increment?: number }): void;
+			},
+			token: typeof CancellationTokenNone,
+		) => Thenable<T>,
+	): Thenable<T> => task({ report() {} }, CancellationTokenNone),
+	/**
+	 * Registers nothing. The real one also contributes the built-in collapseAll
+	 * command for the view id, which is why the extension calls it at all; a test
+	 * that cares assigns its own factory to capture the provider it was given.
+	 */
+	createTreeView: (
+		_viewId: string,
+		_options: { treeDataProvider: unknown; showCollapseAll?: boolean },
+	): { dispose(): void } => ({ dispose() {} }),
 };
 
 export const languages = {
@@ -417,9 +476,65 @@ export const languages = {
 	registerHoverProvider: () => ({ dispose() {} }),
 	registerDocumentSemanticTokensProvider: () => ({ dispose() {} }),
 	createDiagnosticCollection: (name?: string) => new DiagnosticCollection(name),
+	/** Never fires; a test assigns its own to drive the diagnostic refresh. */
+	onDidChangeDiagnostics: (_listener: () => void): { dispose(): void } => ({
+		dispose() {},
+	}),
 };
 
 export const commands = {
 	registerCommand: () => ({ dispose() {} }),
 	executeCommand: () => Promise.resolve(undefined),
 };
+
+/**
+ * Mirrors `vscode.Disposable`, which the extension uses as a teardown hook: a
+ * callback pushed onto `context.subscriptions` so a timer is cleared when the
+ * extension deactivates. Running that callback is the only observable part.
+ */
+export class Disposable {
+	disposed = false;
+	constructor(private readonly callOnDispose?: () => void) {}
+	dispose(): void {
+		this.disposed = true;
+		this.callOnDispose?.();
+	}
+}
+
+/**
+ * A `vscode.FileSystemWatcher` that keeps its handlers rather than watching
+ * anything. The extension wires refreshes to these, so a test fires them by
+ * hand to prove a `buf.lock` write reaches the tree — and only once.
+ */
+export class FileSystemWatcher {
+	readonly onCreate: Array<() => void> = [];
+	readonly onChange: Array<() => void> = [];
+	readonly onDelete: Array<() => void> = [];
+	disposed = false;
+	constructor(readonly pattern = "") {}
+	onDidCreate(listener: () => void): { dispose(): void } {
+		this.onCreate.push(listener);
+		return { dispose() {} };
+	}
+	onDidChange(listener: () => void): { dispose(): void } {
+		this.onChange.push(listener);
+		return { dispose() {} };
+	}
+	onDidDelete(listener: () => void): { dispose(): void } {
+		this.onDelete.push(listener);
+		return { dispose() {} };
+	}
+	/** Fires every handler, as a save that creates then changes a file would. */
+	fireAll(): void {
+		for (const listener of [
+			...this.onCreate,
+			...this.onChange,
+			...this.onDelete,
+		]) {
+			listener();
+		}
+	}
+	dispose(): void {
+		this.disposed = true;
+	}
+}
