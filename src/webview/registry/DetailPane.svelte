@@ -63,22 +63,24 @@ const failure = (action: Action): string | undefined => {
 </script>
 
 <div class="min-w-0 overflow-auto pb-6">
-	<header class="flex gap-3 border-b border-line px-4 py-4">
+	<header
+		class="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-2.5"
+	>
 		<span
-			class="grid size-11 shrink-0 place-items-center rounded-lg border border-line font-mono text-lg font-bold"
+			class="grid size-7 shrink-0 place-items-center rounded border border-line font-mono text-[13px] font-bold"
 			aria-hidden="true"
 		>
 			{dep.module.charAt(0).toUpperCase()}
 		</span>
-		<div class="min-w-0">
-			<h1 class="m-0 font-mono text-[17px] font-bold tracking-tight">
+		<div class="flex min-w-0 shrink items-baseline gap-2">
+			<h1 class="m-0 font-mono text-[14px] font-bold tracking-tight">
 				{dep.module}
 			</h1>
-			<p class="mt-0.5 mb-2 truncate font-mono text-[11.5px] text-muted">
+			<p class="m-0 truncate font-mono text-[10.5px] text-muted">
 				{dep.name}
 			</p>
-
-			<div class="flex flex-wrap gap-1.5">
+		</div>
+		<div class="ms-auto flex min-w-0 flex-wrap justify-end gap-1.5">
 				{#if !declared}
 					<button
 						type="button"
@@ -108,14 +110,12 @@ const failure = (action: Action): string | undefined => {
 						<Icon name="external-link" size={11} />
 					</button>
 				{/if}
-			</div>
-
-			{#each [addAction, updateAction, genAction] as action (actionKey(action))}
-				{#if failure(action)}
-					<p class="mt-1.5 mb-0 text-[11px] text-danger">{failure(action)}</p>
-				{/if}
-			{/each}
 		</div>
+		{#each [addAction, updateAction, genAction] as action (actionKey(action))}
+			{#if failure(action)}
+				<p class="m-0 basis-full text-[11px] text-danger">{failure(action)}</p>
+			{/if}
+		{/each}
 	</header>
 
 	{#if dep.update?.error}
@@ -127,44 +127,39 @@ const failure = (action: Action): string | undefined => {
 		</p>
 	{/if}
 
+	<!--
+		Four numbers on one line. As bordered blocks they occupied a fifth of the
+		pane to say very little; inline they read as a caption and leave the room
+		for the YAML preview and the commit list, which are what the pane is for.
+	-->
 	<dl
-		class="m-0 grid grid-cols-[repeat(auto-fit,minmax(5.5rem,1fr))] border-b border-line"
+		class="m-0 flex flex-wrap items-baseline gap-x-5 gap-y-1 border-b border-line px-4 py-1.5 text-[11px]"
 	>
-		<div class="border-r border-line px-3.5 py-2.5 last:border-r-0">
-			<dt class="text-[9.5px] font-bold tracking-[0.06em] text-muted uppercase">
-				Protos
-			</dt>
-			<dd class="tnum m-0 mt-0.5 font-mono text-[15px] font-bold">
-				{dep.protoCount ?? "—"}
-			</dd>
+		<div class="flex items-baseline gap-1.5">
+			<dt class="text-muted">Protos</dt>
+			<dd class="tnum m-0 font-mono font-bold">{dep.protoCount ?? "—"}</dd>
 		</div>
-		<div class="border-r border-line px-3.5 py-2.5 last:border-r-0">
-			<dt class="text-[9.5px] font-bold tracking-[0.06em] text-muted uppercase">
-				Behind
-			</dt>
+		<div class="flex items-baseline gap-1.5">
+			<dt class="text-muted">Behind</dt>
 			<dd
-				class="tnum m-0 mt-0.5 font-mono text-[15px] font-bold"
+				class="tnum m-0 font-mono font-bold"
 				class:text-warn={(dep.update?.behind ?? 0) > 0}
 			>
 				{dep.update?.behind ?? "—"}
 			</dd>
 		</div>
-		<div class="border-r border-line px-3.5 py-2.5 last:border-r-0">
-			<dt class="text-[9.5px] font-bold tracking-[0.06em] text-muted uppercase">
-				State
-			</dt>
-			<dd class="m-0 mt-0.5 font-mono text-[12px]">{dep.state}</dd>
+		<div class="flex items-baseline gap-1.5">
+			<dt class="text-muted">State</dt>
+			<dd class="m-0 font-mono">{dep.state}</dd>
 		</div>
-		<div class="border-r border-line px-3.5 py-2.5 last:border-r-0">
-			<dt class="text-[9.5px] font-bold tracking-[0.06em] text-muted uppercase">
-				Cached
-			</dt>
-			<dd class="m-0 mt-0.5 font-mono text-[12px]">{protoSummary(dep)}</dd>
+		<div class="flex items-baseline gap-1.5">
+			<dt class="text-muted">Cached</dt>
+			<dd class="m-0 font-mono">{protoSummary(dep)}</dd>
 		</div>
 	</dl>
 
 	{#if !declared}
-		<section class="border-b border-line px-4 py-3">
+		<section class="border-b border-line px-4 py-2.5">
 			<h2
 				class="mb-2 text-[10px] font-bold tracking-[0.07em] text-muted uppercase"
 			>
@@ -184,7 +179,7 @@ const failure = (action: Action): string | undefined => {
 	{/if}
 
 	{#if commits.length > 0}
-		<section class="border-b border-line px-4 py-3">
+		<section class="border-b border-line px-4 py-2.5">
 			<h2
 				class="mb-2 text-[10px] font-bold tracking-[0.07em] text-muted uppercase"
 			>
@@ -219,7 +214,7 @@ const failure = (action: Action): string | undefined => {
 	{/if}
 
 	{#if gen}
-		<section class="px-4 py-3">
+		<section class="px-4 py-2.5">
 			<h2
 				class="mb-2 text-[10px] font-bold tracking-[0.07em] text-muted uppercase"
 			>

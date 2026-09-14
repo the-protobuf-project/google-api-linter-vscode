@@ -25,7 +25,6 @@ import {
 	type DepNode,
 } from "./dependenciesView";
 import { DetailsPanel } from "./detailsPanel";
-import { DETAILS_VIEW_ID, DetailsViewProvider } from "./detailsView";
 import { PROBLEMS_VIEW_ID, ProblemsProvider } from "./problemsView";
 import {
 	configuredRegistries,
@@ -164,21 +163,10 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 	 * Details
 	 * ---------------------------------------------------------------- */
 
-	const details = new DetailsViewProvider(
-		context.extensionUri,
-		index,
-		diagnostics,
-	);
-	context.subscriptions.push(
-		vscode.window.registerWebviewViewProvider(DETAILS_VIEW_ID, details),
-		details,
-	);
-
 	const refreshProblems = (): void => {
 		problems.refresh();
 		// The finding counts in the open payload came from this collection, so
 		// they are stale the moment it changes.
-		details.refresh();
 		void DetailsPanel.refresh();
 		const total = problems.total();
 		problemsView.badge =
@@ -492,9 +480,9 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 	return {
 		showSymbol: (fqn) => {
 			lastSelected = fqn ?? lastSelected;
-			details.show(fqn);
-			// The tab is a second view of the same selection, not a replacement,
-			// so it follows along whenever it is open and unlocked.
+			// The tab follows the tree whenever it is open and unlocked. When it
+			// is closed this costs nothing: no payload is built for a panel that
+			// is not there to render it.
 			void DetailsPanel.show_symbol(fqn);
 		},
 		refreshProblems,

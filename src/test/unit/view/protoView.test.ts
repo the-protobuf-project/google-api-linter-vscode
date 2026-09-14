@@ -69,7 +69,6 @@ import {
 import {
 	commands,
 	Diagnostic,
-	DiagnosticSeverity,
 	FileSystemWatcher,
 	languages,
 	Range,
@@ -360,7 +359,6 @@ function harness(options: ProviderOptions = {}): Harness {
 	const resolve = options.resolveType;
 	const provider = new ProtoTreeDataProvider(
 		collection as unknown as DiagnosticCollection,
-		options.binaryVersion ?? (() => Promise.resolve("1.2.3")),
 		resolve
 			? (typeName: string) => {
 					options.resolved?.push(typeName);
@@ -557,14 +555,15 @@ describe("root", () => {
 		// Lint, Format and Restart used to be three fake rows at the top of this
 		// tree. They are a `view/title` toolbar now, which is where the debugger
 		// has always put them, and dependencies moved to their own view.
+		// Files duplicated the Explorer and the linter version is a property of
+		// the install, not of the workspace's structure; it lives in the status
+		// bar now. What is left is only what this tree is for.
 		expect(kinds(roots)).toEqual([
 			"section",
 			"section",
 			"section",
 			"section",
 			"section",
-			"section",
-			"status",
 		]);
 		expect(sectionIds(roots)).toEqual([
 			"services",
@@ -572,7 +571,6 @@ describe("root", () => {
 			"resources",
 			"messages",
 			"enums",
-			"files",
 		]);
 	});
 
@@ -603,7 +601,7 @@ describe("root", () => {
 	test("replaces the symbol sections with a notice when there is no index", async () => {
 		const { provider } = harness();
 		const roots = await provider.getChildren();
-		expect(sectionIds(roots)).toEqual(["files"]);
+		expect(sectionIds(roots)).toEqual([]);
 
 		const info = roots.find((node) => node.kind === "info");
 		expect(info?.kind === "info" && info.label).toBe(
@@ -623,7 +621,7 @@ describe("root", () => {
 		const roots = await provider.getChildren();
 
 		// An onDemand index is treated as no index at all by every symbol section.
-		expect(sectionIds(roots)).toEqual(["files"]);
+		expect(sectionIds(roots)).toEqual([]);
 		const info = roots.find((node) => node.kind === "info");
 		expect(info?.kind === "info" && info.label).toBe(
 			"Workspace index is running on demand",
@@ -648,7 +646,6 @@ describe("root", () => {
 			"resources",
 			"messages",
 			"enums",
-			"files",
 		]);
 		const info = roots.find((node) => node.kind === "info");
 		expect(info?.kind === "info" && info.label).toBe(
@@ -660,40 +657,12 @@ describe("root", () => {
 		expect(tooltip(item)).toContain("Above 1 files");
 	});
 
-	test("reports the linter version, and says so when the binary is missing", async () => {
-		const ok = await harness({
-			binaryVersion: () => Promise.resolve("1.9.0"),
-		}).provider.getChildren();
-		const good = ok[ok.length - 1];
-		expect(good.kind === "status" && good.version).toBe("v1.9.0");
-
-		const already = await harness({
-			binaryVersion: () => Promise.resolve("v2.0.0"),
-		}).provider.getChildren();
-		const prefixed = already[already.length - 1];
-		// A `v` already present is not doubled.
-		expect(prefixed.kind === "status" && prefixed.version).toBe("v2.0.0");
-
-		const broken = harness({
-			binaryVersion: () => Promise.reject(new Error("ENOENT")),
-		});
-		const roots = await broken.provider.getChildren();
-		const bad = roots[roots.length - 1];
-		expect(bad.kind).toBe("status");
-		const item = broken.provider.getTreeItem(bad);
-		expect(item.label).toBe("API Linter");
-		expect(item.description).toBe("Not installed or error");
-		expect(iconId(item)).toBe("warning");
-	});
-
-	test("takes the Files badge straight from the index stats", async () => {
-		const index = new FakeIndex(smallWorkspace());
-		const { provider } = harness({ index });
+	test("no longer reports the linter version", async () => {
+		// The version is a property of the install, not of the workspace's
+		// structure. The status bar carries it now.
+		const { provider } = harness();
 		const roots = await provider.getChildren();
-		const files = section(roots, "files");
-		expect(files.kind === "section" && files.count).toBe(2);
-		expect(provider.getTreeItem(files).description).toBe("2");
-		expect(index.reads.files).toBe(0);
+		expect(roots.some((node) => node.kind === "status")).toBe(false);
 	});
 });
 
@@ -1362,7 +1331,7 @@ describe("annotations section", () => {
  * ------------------------------------------------------------------ */
 
 /** A diagnostic this extension published, as the collection would hold it. */
-function ours(line: number, message: string, severity: number): Diagnostic {
+function _ours(line: number, message: string, severity: number): Diagnostic {
 	const diagnostic = new Diagnostic(
 		new Range(line, 0, line, 4),
 		message,
@@ -1373,129 +1342,13 @@ function ours(line: number, message: string, severity: number): Diagnostic {
 }
 
 describe("files section", () => {
-	test("lists the indexed files path-sorted, never globbing the workspace", async () => {
-		const index = new FakeIndex(smallWorkspace());
-		// A glob answer that would be visibly wrong if it were consulted.
-		const { provider } = harness({ index, protos: ["/elsewhere/x.proto"] });
-		const roots = await provider.getChildren();
-		const files = await provider.getChildren(section(roots, "files"));
-
-		expect(labels(files)).toEqual([
-			"/ws/api/v1/common.proto",
-			"/ws/api/v1/library.proto",
-		]);
-	});
-
-	test("falls back to the workspace glob when there is no index", async () => {
-		const { provider } = harness({
-			protos: ["/ws/b.proto", "/ws/a.proto"],
-		});
-		const roots = await provider.getChildren();
-		const files = await provider.getChildren(section(roots, "files"));
-		expect(labels(files)).toEqual(["/ws/a.proto", "/ws/b.proto"]);
-	});
-
-	test("marks a clean file OK and opens it on click", async () => {
+	test("is gone — the Explorer already lists files", async () => {
+		// This section enumerated every .proto in the workspace and could not
+		// filter, open or reveal them any better than the Explorer does.
 		const index = new FakeIndex(smallWorkspace());
 		const { provider } = harness({ index });
 		const roots = await provider.getChildren();
-		const files = await provider.getChildren(section(roots, "files"));
-
-		const item = provider.getTreeItem(files[0]);
-		expect(item.label).toBe("/ws/api/v1/common.proto");
-		expect(item.description).toBe("OK");
-		expect(item.collapsibleState).toBe(TreeItemCollapsibleState.None);
-		expect(iconColor(item)).toBe("terminal.ansiCyan");
-		expect(item.resourceUri?.fsPath).toBe("/ws/api/v1/common.proto");
-		expect(command(item)?.command).toBe("vscode.open");
-	});
-
-	test("colours and counts a file by its worst diagnostic", async () => {
-		const index = new FakeIndex(smallWorkspace());
-		const { provider, collection } = harness({ index });
-		collection.set(Uri.file("/ws/api/v1/common.proto"), [
-			ours(2, "warned", DiagnosticSeverity.Warning),
-		]);
-		collection.set(Uri.file("/ws/api/v1/library.proto"), [
-			ours(4, "broken", DiagnosticSeverity.Error),
-			ours(5, "warned", DiagnosticSeverity.Warning),
-		]);
-		const roots = await provider.getChildren();
-		const files = await provider.getChildren(section(roots, "files"));
-
-		const warned = provider.getTreeItem(files[0]);
-		expect(warned.description).toBe("0 error(s), 1 warning(s)");
-		expect(iconColor(warned)).toBe("terminal.ansiMagenta");
-		expect(warned.collapsibleState).toBe(TreeItemCollapsibleState.Collapsed);
-
-		// An error anywhere in the file wins the colour.
-		const broken = provider.getTreeItem(files[1]);
-		expect(broken.description).toBe("1 error(s), 1 warning(s)");
-		expect(iconColor(broken)).toBe("terminal.ansiBlue");
-	});
-
-	test("ignores diagnostics published by anything else", async () => {
-		const index = new FakeIndex(smallWorkspace());
-		const { provider, collection } = harness({ index });
-		const foreign = new Diagnostic(
-			new Range(0, 0, 0, 1),
-			"from another extension",
-			DiagnosticSeverity.Error,
-		);
-		foreign.source = "some-other-linter";
-		collection.set(Uri.file("/ws/api/v1/common.proto"), [foreign]);
-
-		const roots = await provider.getChildren();
-		const files = await provider.getChildren(section(roots, "files"));
-		expect(provider.getTreeItem(files[0]).description).toBe("OK");
-		expect(await provider.getChildren(files[0])).toEqual([]);
-	});
-
-	test("expands a file into its diagnostics", async () => {
-		const long = `${"x".repeat(70)}END`;
-		const index = new FakeIndex(smallWorkspace());
-		const { provider, collection } = harness({ index });
-		collection.set(Uri.file("/ws/api/v1/common.proto"), [
-			ours(6, long, DiagnosticSeverity.Error),
-			ours(9, "short warning", DiagnosticSeverity.Warning),
-		]);
-		const roots = await provider.getChildren();
-		const files = await provider.getChildren(section(roots, "files"));
-		const diagnostics = await provider.getChildren(files[0]);
-
-		expect(kinds(diagnostics)).toEqual(["diagnostic", "diagnostic"]);
-		const first = provider.getTreeItem(diagnostics[0]);
-		// Long messages are elided so one node cannot stretch the sidebar.
-		expect(first.label).toBe(`${"x".repeat(60)}…`);
-		expect(first.description).toBe("L7");
-		expect(iconId(first)).toBe("error");
-		expect(iconColor(first)).toBe("terminal.ansiBlue");
-		expect(command(first)?.command).toBe("googleApiLinter.revealLocation");
-
-		const second = provider.getTreeItem(diagnostics[1]);
-		expect(second.label).toBe("short warning");
-		expect(iconId(second)).toBe("warning");
-		expect(iconColor(second)).toBe("terminal.ansiMagenta");
-	});
-
-	test("truncates the list at the file ceiling and says by how much", async () => {
-		const specs = Array.from({ length: 5 }, (_, at) => ({
-			path: `/ws/file${at}.proto`,
-			packageName: "acme.v1",
-		}));
-		const { provider } = harness({
-			index: new FakeIndex(specs),
-			fileCeiling: 2,
-		});
-		const roots = await provider.getChildren();
-		const files = await provider.getChildren(section(roots, "files"));
-
-		expect(kinds(files)).toEqual(["file", "file", "info"]);
-		const notice = provider.getTreeItem(files[2]);
-		expect(notice.label).toBe("Showing 2 of 5 files");
-		expect(notice.description).toBe("list truncated");
-		expect(iconId(notice)).toBe("list-flat");
-		expect(tooltip(notice)).toContain("3 more exist in this workspace");
+		expect(sectionIds(roots)).not.toContain("files");
 	});
 });
 
@@ -1535,7 +1388,9 @@ describe("folder nodes", () => {
 		expect(iconId(item)).toBe("folder");
 
 		const children = await provider.getChildren(folder);
-		expect(kinds(children)).toEqual(["init", "file", "file"]);
+		// The init prompt is all that remains: listing the folder's protos
+		// was the Files section's job, and that is gone.
+		expect(kinds(children)).toEqual(["init"]);
 		const init = provider.getTreeItem(children[0]);
 		const args = command(init)?.arguments as [Uri];
 		expect(args[0].fsPath).toBe(dir);
@@ -1550,44 +1405,9 @@ describe("folder nodes", () => {
 			name: path.basename(dir),
 			uri: Uri.file(dir),
 		});
-		expect(kinds(children)).toEqual(["file"]);
-	});
-
-	test("strips the folder prefix from a file label inside a folder", async () => {
-		const dir = tempDir();
-		// The real module returns a workspace-relative path; the stub returns the
-		// absolute one, so a folder-relative answer has to be supplied here.
-		workspace.asRelativePath = (target, includeFolder) =>
-			typeof target === "string"
-				? target
-				: `${includeFolder === false ? "" : "root/"}${path.basename(dir)}/${path.basename(target.fsPath)}`;
-		const { provider } = harness({ protos: [path.join(dir, "deep.proto")] });
-		const children = await provider.getChildren({
-			kind: "folder",
-			name: path.basename(dir),
-			uri: Uri.file(dir),
-		});
-		const file = children.find((node) => node.kind === "file");
-		expect(provider.getTreeItem(file as ProtoTreeNode).label).toBe(
-			"deep.proto",
-		);
-	});
-
-	test("truncates a folder's files at the ceiling", async () => {
-		const dir = tempDir();
-		const { provider } = harness({
-			fileCeiling: 1,
-			protos: [path.join(dir, "b.proto"), path.join(dir, "a.proto")],
-		});
-		const children = await provider.getChildren({
-			kind: "folder",
-			name: path.basename(dir),
-			uri: Uri.file(dir),
-		});
-		expect(kinds(children)).toEqual(["init", "file", "info"]);
-		// Sorted before truncation, so the first file is the alphabetical one.
-		expect(labels(children)[1]).toBe(path.join(dir, "a.proto"));
-		expect(labels(children)[2]).toBe("Showing 1 of 2 files");
+		// A configured folder has nothing left to enumerate: the Files
+		// section that listed its protos is gone.
+		expect(kinds(children)).toEqual([]);
 	});
 });
 
@@ -1752,8 +1572,6 @@ describe("refresh", () => {
 		const messages = await provider.getChildren(section(refreshed, "messages"));
 		// `Shelf` and `Empty` are gone; `Author` has arrived.
 		expect(labels(messages)).toEqual(["Author", "Book"]);
-		const files = section(refreshed, "files");
-		expect(files.kind === "section" && files.count).toBe(1);
 	});
 
 	test("coalesces a burst of index changes into one refresh", async () => {
@@ -1832,16 +1650,9 @@ describe("edge cases", () => {
 			"resources",
 			"messages",
 			"enums",
-			"files",
 		]);
 		expect(roots.some((node) => node.kind === "info")).toBe(false);
-		for (const id of [
-			"services",
-			"rpcs",
-			"messages",
-			"enums",
-			"files",
-		] as const) {
+		for (const id of ["services", "rpcs", "messages", "enums"] as const) {
 			expect(await provider.getChildren(section(roots, id))).toEqual([]);
 		}
 	});
@@ -1850,8 +1661,8 @@ describe("edge cases", () => {
 		const index = new FakeIndex(smallWorkspace());
 		const { provider } = harness({ index });
 		const roots = await provider.getChildren();
-		const status = roots[roots.length - 1];
-		expect(await provider.getChildren(status)).toEqual([]);
+		// The last root is a section; sections do have children, so a genuine
+		// leaf is needed for this assertion to mean anything.
 		// A field inside a message is a leaf: nothing nests below it.
 		const messages = await provider.getChildren(section(roots, "messages"));
 		const members = await provider.getChildren(messages[0]);
@@ -2072,7 +1883,6 @@ function register(
 	registerProtoView(
 		{ subscriptions } as unknown as ExtensionContext,
 		new StubDiagnosticCollection("test") as unknown as DiagnosticCollection,
-		() => Promise.resolve("1.2.3"),
 		undefined,
 		index,
 	);

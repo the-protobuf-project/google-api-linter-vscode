@@ -197,7 +197,7 @@
 			"activitybar": [
 				{
 					"id": "protobuf-aip-linter",
-					"title": "Proto",
+					"title": "Protobuf Tooling",
 					"icon": "picon.png"
 				}
 			]
@@ -212,12 +212,6 @@
 				{
 					"id": "googleApiLinter.views.problems",
 					"name": "Problems",
-					"contextualTitle": "Proto"
-				},
-				{
-					"id": "googleApiLinter.views.details",
-					"name": "Details",
-					"type": "webview",
 					"contextualTitle": "Proto"
 				},
 				{
@@ -444,19 +438,14 @@
 					"group": "navigation@5"
 				},
 				{
-					"command": "googleApiLinter.openDetailsToSide",
-					"when": "view == googleApiLinter.views.details",
-					"group": "navigation@1"
-				},
-				{
-					"command": "googleApiLinter.lockDetails",
-					"when": "view == googleApiLinter.views.details",
-					"group": "navigation@2"
-				},
-				{
 					"command": "googleApiLinter.addRegistry",
 					"when": "view == googleApiLinter.views.registries",
 					"group": "navigation@1"
+				},
+				{
+					"command": "googleApiLinter.openDetailsToSide",
+					"when": "view == googleApiLinter.views.structure",
+					"group": "navigation@6"
 				}
 			],
 			"view/item/context": [

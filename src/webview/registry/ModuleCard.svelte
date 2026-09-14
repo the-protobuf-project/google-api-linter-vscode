@@ -13,37 +13,42 @@ let {
 }: { dep: BufDep; selected: boolean; onSelect: () => void } = $props();
 </script>
 
+<!--
+	One row, not one card.
+
+	The three stacked lines this used to draw made every module 64px tall, so a
+	workspace with a dozen dependencies needed scrolling to see half of them.
+	Laid out as columns the same facts fit in 26px, and — more usefully — the
+	commits and proto counts line up down the list where they can be compared.
+-->
 <button
 	type="button"
-	class="grid w-full grid-cols-[1.875rem_minmax(0,1fr)_auto] items-start gap-2.5 border-l-2 border-transparent px-3.5 py-2 text-left hover:bg-hover"
+	class="grid w-full grid-cols-[1.25rem_minmax(7rem,1.4fr)_minmax(0,1fr)_5.5rem_4.5rem_auto] items-center gap-x-3 border-l-2 border-transparent px-3 py-1 text-left hover:bg-hover"
 	class:bg-active={selected}
 	class:border-l-focus={selected}
 	aria-pressed={selected}
 	onclick={onSelect}
 >
 	<span
-		class={`grid size-[1.875rem] place-items-center rounded border font-mono text-[13px] font-bold ${avatarTone(dep.owner)}`}
+		class={`grid size-5 place-items-center rounded-sm border font-mono text-[10px] font-bold ${avatarTone(dep.owner)}`}
 		aria-hidden="true"
 	>
 		{dep.module.charAt(0).toUpperCase()}
 	</span>
 
-	<span class="min-w-0">
-		<span class="block truncate font-mono text-[12.5px] font-medium">
-			{dep.module}
-		</span>
-		<span class="block truncate font-mono text-[10.5px] text-muted">
-			{dep.remote}/{dep.owner}
-		</span>
-		<span
-			class="tnum mt-0.5 flex flex-wrap gap-x-2 font-mono text-[10.5px] text-muted"
-		>
-			<span>{protoSummary(dep)}</span>
-			{#if dep.commit}
-				<span>{shortCommit(dep.commit)}</span>
-			{/if}
-		</span>
+	<span class="truncate font-mono text-[12px] font-medium">{dep.module}</span>
+
+	<span class="truncate font-mono text-[10.5px] text-muted">
+		{dep.remote}/{dep.owner}
 	</span>
 
-	<span class="flex items-center pt-1"><StatusPill {dep} /></span>
+	<span class="tnum truncate text-right font-mono text-[10.5px] text-muted">
+		{protoSummary(dep)}
+	</span>
+
+	<span class="tnum truncate font-mono text-[10.5px] text-muted">
+		{dep.commit ? shortCommit(dep.commit) : ""}
+	</span>
+
+	<span class="flex justify-end"><StatusPill {dep} /></span>
 </button>

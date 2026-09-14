@@ -173,7 +173,6 @@ export async function activate(context: vscode.ExtensionContext) {
 		registerProtoView(
 			context,
 			diagnosticCollection,
-			() => binaryManager.getBinaryVersion(),
 			(typeName: string, contextUri: vscode.Uri) =>
 				definitionProvider.resolveTypeToLocation(typeName, contextUri),
 			index,

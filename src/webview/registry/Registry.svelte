@@ -71,7 +71,7 @@ const checking = $derived(tasks[actionKey({ kind: "check" })]);
 {:else if model.error}
 	<EmptyState message="Could not read buf configuration" detail={model.error} />
 {:else}
-	<div class="grid min-h-dvh grid-cols-1 lg:grid-cols-[10.5rem_minmax(0,1.15fr)_minmax(0,1fr)]">
+	<div class="grid min-h-dvh grid-cols-1 lg:grid-cols-[9.5rem_minmax(0,1.6fr)_minmax(22rem,1fr)]">
 		<div class="border-line lg:border-r">
 			<Rail groups={rail} selected={filter} onSelect={onFilter} />
 		</div>
@@ -112,7 +112,7 @@ const checking = $derived(tasks[actionKey({ kind: "check" })]);
 				{:else}
 					{#each groups as group (group.label)}
 						<h2
-							class="flex justify-between gap-2 px-3.5 pt-3 pb-1.5 text-[9.5px] font-bold tracking-[0.07em] text-muted uppercase"
+							class="flex justify-between gap-2 border-b border-line/60 px-3 pt-2 pb-1 text-[9px] font-bold tracking-[0.07em] text-muted uppercase"
 						>
 							<span>{group.label}</span>
 							<span class="tnum font-mono">{group.deps.length}</span>

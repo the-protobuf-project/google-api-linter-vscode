@@ -24,8 +24,8 @@ import {
 	findGapiConfigFile,
 	findGapiConfigFileInFolder,
 } from "./utils/configReader";
-import { findProtoFiles, findProtoFilesInFolder } from "./utils/fileUtils";
 import { invalidateProtoImportRootsCache } from "./utils/protoImportRoots";
+import { symbolSpan } from "./views/symbolDetail";
 
 /** View id, matching `contributes.views` in package.json. */
 export const STRUCTURE_VIEW_ID = "googleApiLinter.views.structure";
@@ -43,8 +43,7 @@ export type ProtoSectionId =
 	| "resources"
 	| "messages"
 	| "enums"
-	| "annotations"
-	| "files";
+	| "annotations";
 
 /** Sections that enumerate symbols and are therefore subject to the ceiling. */
 const SYMBOL_SECTIONS: ReadonlySet<ProtoSectionId> = new Set<ProtoSectionId>([
@@ -200,7 +199,7 @@ function infoNode(
 }
 
 /** A leaf node saying how much of a known total is actually shown. */
-function truncatedNode(
+function _truncatedNode(
 	shown: number,
 	total: number,
 	noun: string,
@@ -257,7 +256,6 @@ export class ProtoTreeDataProvider
 
 	constructor(
 		private readonly diagnosticCollection: vscode.DiagnosticCollection,
-		private getBinaryVersion: () => Promise<string>,
 		private readonly resolveTypeToLocation?: (
 			typeName: string,
 			contextUri: vscode.Uri,
@@ -358,6 +356,71 @@ export class ProtoTreeDataProvider
 				reason ?? "No index is attached to this view."
 			}`,
 		);
+	}
+
+	/**
+	 * Findings attributed to one symbol, for the inline count on its row.
+	 *
+	 * Counts across the symbol's whole span rather than its declaration line:
+	 * most AIP rules fire on a field or an option inside the body, so a
+	 * line-exact count reads zero on precisely the symbols worth looking at.
+	 *
+	 * Falls back to the declaration line when the symbol is not indexed, which
+	 * is what happens for items derived from a scan rather than the index.
+	 *
+	 * @param uri - File the symbol lives in
+	 * @param fqn - Fully-qualified name, when known
+	 * @param line - Zero-based declaration line
+	 * @returns Error and warning counts inside the span
+	 */
+	private countsFor(
+		uri: vscode.Uri,
+		fqn: string | undefined,
+		line: number,
+	): { errors: number; warnings: number } {
+		const diagnostics = this.diagnosticCollection.get(uri) ?? [];
+		if (diagnostics.length === 0) {
+			return { errors: 0, warnings: 0 };
+		}
+
+		let from = line;
+		let to = line;
+		const index = this.usableIndex();
+		const symbol = fqn ? index?.symbol(fqn) : undefined;
+		if (symbol && index) {
+			const siblings = index.symbolsInFile(symbol.fileId);
+			[from, to] = symbolSpan(siblings, symbol, Number.MAX_SAFE_INTEGER);
+		}
+
+		let errors = 0;
+		let warnings = 0;
+		for (const diagnostic of diagnostics) {
+			if (diagnostic.source !== DIAGNOSTIC_SOURCE) {
+				continue;
+			}
+			const at = diagnostic.range.start.line;
+			if (at < from || at > to) {
+				continue;
+			}
+			if (diagnostic.severity === vscode.DiagnosticSeverity.Error) {
+				errors++;
+			} else if (diagnostic.severity === vscode.DiagnosticSeverity.Warning) {
+				warnings++;
+			}
+		}
+		return { errors, warnings };
+	}
+
+	/** `4 errors` / `2 warnings`, appended to a row's description. */
+	private countSuffix(counts: { errors: number; warnings: number }): string {
+		const parts: string[] = [];
+		if (counts.errors > 0) {
+			parts.push(`${counts.errors}✗`);
+		}
+		if (counts.warnings > 0) {
+			parts.push(`${counts.warnings}⚠`);
+		}
+		return parts.join(" ");
 	}
 
 	getTreeItem(element: ProtoTreeNode): vscode.TreeItem {
@@ -535,7 +598,17 @@ export class ProtoTreeDataProvider
 				element.service.name,
 				vscode.TreeItemCollapsibleState.Collapsed,
 			);
-			item.description = `${element.service.rpcs.length} RPC(s)`;
+			const svc = this.countsFor(
+				element.service.uri,
+				element.service.fqn,
+				element.service.range.start.line,
+			);
+			item.description = [
+				`${element.service.rpcs.length} RPC(s)`,
+				this.countSuffix(svc),
+			]
+				.filter((part) => part.length > 0)
+				.join("  ");
 			item.iconPath = new vscode.ThemeIcon(
 				"symbol-interface",
 				new vscode.ThemeColor("symbolIcon.interfaceForeground"),
@@ -555,7 +628,14 @@ export class ProtoTreeDataProvider
 				element.rpc.name,
 				vscode.TreeItemCollapsibleState.Collapsed,
 			);
-			item.description = element.rpc.detail;
+			const rpcCounts = this.countsFor(
+				element.rpc.uri,
+				element.rpc.fqn,
+				element.rpc.range.start.line,
+			);
+			item.description = [element.rpc.detail, this.countSuffix(rpcCounts)]
+				.filter((part) => part && part.length > 0)
+				.join("  ");
 			item.iconPath = new vscode.ThemeIcon(
 				"symbol-method",
 				new vscode.ThemeColor("terminal.ansiMagenta"),
@@ -620,12 +700,20 @@ export class ProtoTreeDataProvider
 					? vscode.TreeItemCollapsibleState.Collapsed
 					: vscode.TreeItemCollapsibleState.None,
 			);
-			treeItem.description = loc.detail;
+			const counts = this.countsFor(loc.uri, loc.fqn, loc.range.start.line);
+			const suffix = this.countSuffix(counts);
+			treeItem.description = [loc.detail, suffix]
+				.filter((part) => part && part.length > 0)
+				.join("  ");
 			treeItem.iconPath = new vscode.ThemeIcon(
 				loc.icon,
-				expandable
-					? new vscode.ThemeColor("symbolIcon.classForeground")
-					: undefined,
+				counts.errors > 0
+					? new vscode.ThemeColor("editorError.foreground")
+					: counts.warnings > 0
+						? new vscode.ThemeColor("editorWarning.foreground")
+						: expandable
+							? new vscode.ThemeColor("symbolIcon.classForeground")
+							: undefined,
 			);
 			treeItem.command = {
 				command: "googleApiLinter.revealLocation",
@@ -844,10 +932,6 @@ export class ProtoTreeDataProvider
 	}
 
 	private async buildSection(id: ProtoSectionId): Promise<ProtoTreeNode[]> {
-		if (id === "files") {
-			return await this.buildFilesSection();
-		}
-
 		const index = this.usableIndex();
 		if (SYMBOL_SECTIONS.has(id) && !index) {
 			return [this.noIndexNode()];
@@ -899,51 +983,6 @@ export class ProtoTreeDataProvider
 		}
 
 		return [];
-	}
-
-	/**
-	 * Proto files with their diagnostic counts, bounded by the file ceiling.
-	 * Prefers the index's file list so no workspace glob runs.
-	 */
-	private async buildFilesSection(): Promise<ProtoTreeNode[]> {
-		const index = this.usableIndex();
-		const paths = index
-			? index
-					.files()
-					.map((file) => file.path)
-					.sort((a, b) => a.localeCompare(b))
-			: (await findProtoFiles())
-					.map((uri) => uri.fsPath)
-					.sort((a, b) => a.localeCompare(b));
-
-		const total = paths.length;
-		const shown = Math.min(total, this.fileCeiling);
-		const nodes: ProtoTreeNode[] = [];
-		for (let i = 0; i < shown; i++) {
-			nodes.push(this.fileNode(vscode.Uri.file(paths[i])));
-		}
-		if (total > shown) {
-			nodes.push(truncatedNode(shown, total, "files"));
-		}
-		return nodes;
-	}
-
-	/** One file node with its counts of diagnostics from this extension. */
-	private fileNode(uri: vscode.Uri, folderName?: string): ProtoTreeNode {
-		const diagnostics = this.diagnosticCollection.get(uri) ?? [];
-		let errorCount = 0;
-		let warningCount = 0;
-		for (const diagnostic of diagnostics) {
-			if (diagnostic.source !== DIAGNOSTIC_SOURCE) {
-				continue;
-			}
-			if (diagnostic.severity === vscode.DiagnosticSeverity.Error) {
-				errorCount++;
-			} else if (diagnostic.severity === vscode.DiagnosticSeverity.Warning) {
-				warningCount++;
-			}
-		}
-		return { kind: "file", uri, errorCount, warningCount, folderName };
 	}
 
 	async getChildren(element?: ProtoTreeNode): Promise<ProtoTreeNode[]> {
@@ -1105,16 +1144,6 @@ export class ProtoTreeDataProvider
 					folderUri,
 				});
 			}
-			const protoUris = (await findProtoFilesInFolder(folderUri)).sort((a, b) =>
-				a.fsPath.localeCompare(b.fsPath),
-			);
-			const shown = Math.min(protoUris.length, this.fileCeiling);
-			for (let i = 0; i < shown; i++) {
-				children.push(this.fileNode(protoUris[i], element.name));
-			}
-			if (protoUris.length > shown) {
-				children.push(truncatedNode(shown, protoUris.length, "files"));
-			}
 			return children;
 		}
 
@@ -1201,33 +1230,6 @@ export class ProtoTreeDataProvider
 			}
 		}
 
-		roots.push({
-			kind: "section",
-			id: "files",
-			label: "Files",
-			count: index?.stats().fileCount ?? this.sectionCounts.get("files"),
-			icon: "symbol-file",
-		});
-
-		try {
-			const version = await this.getBinaryVersion();
-			const versionStr = version.startsWith("v") ? version : `v${version}`;
-			roots.push({
-				kind: "status",
-				label: "API Linter",
-				version: versionStr,
-				detail: undefined,
-				icon: "symbol-misc",
-			});
-		} catch {
-			roots.push({
-				kind: "status",
-				label: "API Linter",
-				detail: "Not installed or error",
-				icon: "warning",
-			});
-		}
-
 		return roots;
 	}
 }
@@ -1241,7 +1243,6 @@ export class ProtoTreeDataProvider
 export function registerProtoView(
 	context: vscode.ExtensionContext,
 	diagnosticCollection: vscode.DiagnosticCollection,
-	getBinaryVersion: () => Promise<string>,
 	resolveTypeToLocation?: (
 		typeName: string,
 		contextUri: vscode.Uri,
@@ -1252,7 +1253,6 @@ export function registerProtoView(
 ): void {
 	const treeDataProvider = new ProtoTreeDataProvider(
 		diagnosticCollection,
-		getBinaryVersion,
 		resolveTypeToLocation,
 		index,
 		fileCeiling,
