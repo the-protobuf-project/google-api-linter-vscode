@@ -18,6 +18,7 @@ out/**
 src/**
 **/*.ts
 **/tsconfig.json
+**/tsconfig.*.json
 esbuild.js
 biome.json
 bunfig.toml
