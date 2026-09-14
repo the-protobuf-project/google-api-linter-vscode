@@ -395,6 +395,18 @@
 				"title": "Insert Usage at Cursor",
 				"category": "Protobuf AIP Linter",
 				"icon": "$(insert)"
+			},
+			{
+				"command": "googleApiLinter.createStarterProject",
+				"title": "Create Starter Project",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(new-folder)"
+			},
+			{
+				"command": "googleApiLinter.setupGithubCI",
+				"title": "Set Up GitHub Actions CI",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(github-action)"
 			}
 		],
 		"menus": {
@@ -613,7 +625,7 @@
 		"viewsWelcome": [
 			{
 				"view": "googleApiLinter.views.dependencies",
-				"contents": "Browse the Proto Registry to add a module from the Buf Schema Registry.\\n[Open Proto Registry](command:googleApiLinter.openRegistry)\\nDependencies come from `deps:` in your `buf.yaml`.",
+				"contents": "Browse the Proto Registry to add a module from the Buf Schema Registry.\n[Open Proto Registry](command:googleApiLinter.openRegistry)\nDependencies come from `deps:` in your `buf.yaml`.\n[Create Starter Project](command:googleApiLinter.createStarterProject)",
 				"when": "!googleApiLinter.hasDeps"
 			},
 			{

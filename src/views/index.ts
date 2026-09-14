@@ -16,6 +16,7 @@ import {
 } from "../deps";
 import type { ProtoIndex } from "../index/types";
 import { annotationUsage } from "../protoScanner";
+import { createStarterProject, setupGithubCi } from "../scaffold";
 import type { DependencyModel } from "../shared/protocol";
 import { invalidateModuleGraphCache } from "../utils/moduleGraph";
 import { buildApiReport } from "./apiReport";
@@ -384,6 +385,18 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 
 		vscode.commands.registerCommand("googleApiLinter.captureErrors", () =>
 			captureErrors(diagnostics),
+		),
+
+		vscode.commands.registerCommand(
+			"googleApiLinter.createStarterProject",
+			async () => {
+				await createStarterProject();
+				refreshDependencies();
+			},
+		),
+
+		vscode.commands.registerCommand("googleApiLinter.setupGithubCI", () =>
+			setupGithubCi(),
 		),
 
 		vscode.commands.registerCommand(

@@ -27,6 +27,14 @@ All notable changes to this extension are documented here. The format follows
 - **Capture All Errors** — findings as a shareable Markdown report with the
   offending source lines quoted.
 - **Symbol search** over the workspace index.
+- **Create Starter Project** — a working AIP Todo API: the resource with its
+  `google.api.resource` declaration, the five standard methods with their HTTP
+  bindings, and buf configuration. It lints clean as written, so the first
+  finding you see is one you caused.
+- **Set Up GitHub Actions CI** — a workflow using
+  [setup-google-api-linter](https://github.com/the-protobuf-project/setup-google-api-linter),
+  which annotates each problem inline on the diff. It finds the directory
+  holding your `buf.yaml` and points the action at it.
 - `gapi.lintOnStartup` (default true): lint the workspace when it opens.
 - A centred empty state in Problems when nothing is wrong, with a Lint
   Workspace button, rather than a row pretending to be one.
