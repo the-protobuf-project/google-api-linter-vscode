@@ -21,6 +21,7 @@ import {
 	OUTPUT_CHANNEL_NAME,
 } from "./constants";
 import { ProtoDefinitionProvider } from "./definitionProvider";
+import { currentEnvironment, showSetup } from "./doctor/setupPanel";
 import { ProtoDocumentLinkProvider } from "./documentLinkProvider";
 import { ProtoDocumentSymbolProvider } from "./documentSymbolProvider";
 import { ProtoFoldingRangeProvider } from "./foldingProvider";
@@ -34,7 +35,7 @@ import { ProtoReferenceProvider } from "./referenceProvider";
 import { ProtoRenameProvider } from "./renameProvider";
 import { registerReportIssueCommand } from "./reportIssue";
 import { ProtoSignatureHelpProvider } from "./signatureHelpProvider";
-import { registerStatusBar } from "./statusBar";
+import { registerStatusBar, updateToolchainStatus } from "./statusBar";
 import { ProtoSymbolHoverProvider } from "./symbolHoverProvider";
 import { isProtoFile } from "./utils/fileUtils";
 import {
@@ -253,6 +254,46 @@ export async function activate(context: vscode.ExtensionContext) {
 		}
 
 		registerStatusBar(context, diagnosticCollection);
+
+		context.subscriptions.push(
+			vscode.commands.registerCommand(
+				"googleApiLinter.checkSetup",
+				async () => {
+					updateToolchainStatus(await showSetup());
+				},
+			),
+		);
+
+		// Inspect the toolchain in the background and fill in the status bar.
+		// Not awaited, and not fatal: a probe that cannot run leaves the item
+		// saying what it already said rather than blocking activation.
+		void currentEnvironment()
+			.then(async (report) => {
+				updateToolchainStatus(report);
+				const offer = vscode.workspace
+					.getConfiguration("gapi")
+					.get<boolean>("checkSetupOnStartup", true);
+				// Only speak up when something required is actually absent. A
+				// working machine should never see this.
+				if (offer && !report.ready) {
+					const missing = report.dependencies.filter(
+						(d) => d.requirement === "required" && d.state !== "ok",
+					);
+					const choice = await vscode.window.showWarningMessage(
+						`Proto tooling is incomplete: ${missing
+							.map((d) => d.label)
+							.join(", ")}.`,
+						"Check Setup",
+						"Not now",
+					);
+					if (choice === "Check Setup") {
+						updateToolchainStatus(await showSetup());
+					}
+				}
+			})
+			.catch((error) => {
+				outputChannel.appendLine(`[setup] check failed: ${error}`);
+			});
 
 		const configDiagnosticCollection =
 			vscode.languages.createDiagnosticCollection(

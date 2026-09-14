@@ -12,6 +12,7 @@
 - **Proto Registry**: a searchable browser for Buf Schema Registry modules, opened as an editor tab. Self-hosted registries are supported through `gapi.registries`. Adding a dependency shows the exact `buf.yaml` edit before making it
 - **Generate API Report**: whole-workspace Markdown with per-service Mermaid diagrams, shared-type analysis and findings by rule — for a pull request or a review
 - **Capture All Errors**: every finding as a shareable Markdown report with the offending source lines quoted
+- **Check Setup**: inspects the toolchain — api-linter, googleapis, the protobuf well-known types, buf, clang-format — and reports what is installed, what is missing, and the command to install it on your platform. A status-bar item shows the api-linter version the way a Go file shows its Go version; click it to re-run the check
 - **Create Starter Project**: a working AIP Todo API — the resource, the five standard methods with their HTTP bindings, and buf configuration. It lints clean as written, so the first finding you see is one you caused
 - **Set Up GitHub Actions CI**: a workflow built on [setup-google-api-linter](https://github.com/the-protobuf-project/setup-google-api-linter) that annotates each problem inline on the pull request diff
 - **Status Bar**: Shows "Proto" or "Proto: X error(s), Y warning(s)"; click to open the Proto view

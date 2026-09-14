@@ -27,6 +27,18 @@ All notable changes to this extension are documented here. The format follows
 - **Capture All Errors** — findings as a shareable Markdown report with the
   offending source lines quoted.
 - **Symbol search** over the workspace index.
+- **Check Setup** — inspects the toolchain and reports what is installed, what
+  is missing, and how to install it on *this* machine. Hints are
+  platform-specific: Homebrew on macOS, apt/dnf/pacman on Linux, winget or
+  Scoop on Windows, with Go as the cross-platform fallback. A manager that is
+  not installed is shown and marked rather than hidden, because on a fresh
+  machine the real answer is often "install that first".
+- **A toolchain status-bar item**, the way a Go file reports its Go version.
+  It shows the api-linter version, turns amber when something required is
+  missing, and its tooltip lists every dependency with its version. Clicking it
+  opens the setup check.
+- `gapi.checkSetupOnStartup` (default true): offers to set things up on a
+  machine that is missing something required, and stays silent otherwise.
 - **Create Starter Project** — a working AIP Todo API: the resource with its
   `google.api.resource` declaration, the five standard methods with their HTTP
   bindings, and buf configuration. It lints clean as written, so the first

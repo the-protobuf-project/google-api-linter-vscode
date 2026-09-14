@@ -185,6 +185,11 @@
 					"items": {
 						"type": "string"
 					}
+				},
+				"gapi.checkSetupOnStartup": {
+					"type": "boolean",
+					"default": true,
+					"description": "On a machine that is missing something the linter needs, offer to set it up. Silent once everything is installed."
 				}
 			}
 		},
@@ -407,6 +412,12 @@
 				"title": "Set Up GitHub Actions CI",
 				"category": "Protobuf AIP Linter",
 				"icon": "$(github-action)"
+			},
+			{
+				"command": "googleApiLinter.checkSetup",
+				"title": "Check Setup",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(tools)"
 			}
 		],
 		"menus": {
