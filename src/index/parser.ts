@@ -165,6 +165,43 @@ function lineCommentAt(line: string): number {
 }
 
 /**
+ * Index of a block-comment opener, or -1.
+ *
+ * String-aware for the same reason {@link lineCommentAt} is, and it matters
+ * more here. An AIP path template is written with wildcard segments — think
+ * `users` followed by a slash and a star, inside a quoted string — so a raw
+ * `indexOf` finds an opener that is not one, fails to find its closer, and
+ * puts the parser into block-comment mode for the rest of the file. Every
+ * declaration after the first `google.api.http` annotation then vanishes,
+ * which is precisely what a service with five RPCs reporting one looked like.
+ *
+ * (This comment deliberately spells those characters out rather than quoting
+ * them: writing the example literally would close this block early.)
+ */
+function blockCommentAt(line: string): number {
+	let quote = 0;
+	for (let i = 0; i < line.length - 1; i++) {
+		const ch = line.charCodeAt(i);
+		if (ch === 92 /* \ */) {
+			i++;
+			continue;
+		}
+		if (ch === 34 /* " */ || ch === 39 /* ' */) {
+			if (quote === 0) {
+				quote = ch;
+			} else if (quote === ch) {
+				quote = 0;
+			}
+			continue;
+		}
+		if (quote === 0 && ch === 47 /* / */ && line.charCodeAt(i + 1) === 42) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+/**
  * Parses one `.proto` file.
  *
  * The parser is a single line-oriented pass with a brace stack; it is not a
@@ -257,7 +294,7 @@ export function parseProtoText(
 			line = before;
 		}
 
-		const blockAt = line.indexOf("/*");
+		const blockAt = blockCommentAt(line);
 		if (blockAt >= 0) {
 			const close = line.indexOf("*/", blockAt + 2);
 			if (close < 0) {

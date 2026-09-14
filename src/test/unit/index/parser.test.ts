@@ -885,3 +885,65 @@ extend .google.protobuf.MessageOptions {
 		"Body",
 	]);
 });
+
+describe("comment markers inside strings", () => {
+	test("an http path template does not open a block comment", () => {
+		// The regression: a path template's wildcard segment reads as a
+		// block-comment opener to a naive scan, and since no closer follows, the
+		// parser swallowed every declaration after the first annotated RPC. A
+		// five-method service reported one method.
+		const star = "*";
+		const text = [
+			'syntax = "proto3";',
+			"package library.v1;",
+			"service LibraryService {",
+			`  rpc GetBook(GetBookRequest) returns (Book) {`,
+			`    option (google.api.http) = {get: "/v1/{name=shelves/${star}/books/${star}}"};`,
+			"  }",
+			"  rpc ListBooks(ListBooksRequest) returns (ListBooksResponse) {",
+			`    option (google.api.http) = {get: "/v1/{parent=shelves/${star}}/books"};`,
+			"  }",
+			"  rpc DeleteBook(DeleteBookRequest) returns (Empty);",
+			"}",
+			"message Book {}",
+		].join("\n");
+
+		const parsed = parseProtoText(text, { keepMembers: true, keepDocs: true });
+		expect(
+			parsed.symbols
+				.filter((symbol) => symbol.kind === "rpc")
+				.map((s) => s.name),
+		).toEqual(["GetBook", "ListBooks", "DeleteBook"]);
+		// The declaration after the service has to survive too: the phantom
+		// comment ran to end of file, not just to the end of the service.
+		expect(
+			parsed.symbols.some(
+				(symbol) => symbol.kind === "message" && symbol.name === "Book",
+			),
+		).toBe(true);
+	});
+
+	test("a real block comment still hides what it wraps", () => {
+		const text = [
+			'syntax = "proto3";',
+			"package p;",
+			"/" + "* message Hidden {} *" + "/",
+			"message Visible {}",
+		].join("\n");
+		const parsed = parseProtoText(text, { keepMembers: true, keepDocs: true });
+		expect(parsed.symbols.map((symbol) => symbol.name)).toEqual(["Visible"]);
+	});
+
+	test("a multi-line block comment still spans lines", () => {
+		const text = [
+			'syntax = "proto3";',
+			"package p;",
+			"/" + "*",
+			"message Hidden {}",
+			"*" + "/",
+			"message Visible {}",
+		].join("\n");
+		const parsed = parseProtoText(text, { keepMembers: true, keepDocs: true });
+		expect(parsed.symbols.map((symbol) => symbol.name)).toEqual(["Visible"]);
+	});
+});
