@@ -319,3 +319,52 @@ describe("registry panel", () => {
 		expect(text).toContain("no buf.yaml in this workspace");
 	});
 });
+
+describe("registry focus", () => {
+	test("scopes the list to one registry host", async () => {
+		const local = await mountBundle("registry");
+		const window = local.window as Window;
+
+		const dep = (remote: string, module: string) => ({
+			name: `${remote}/acme/${module}`,
+			remote,
+			owner: "acme",
+			module,
+			commit: "0".repeat(32),
+			protoCount: 3,
+			state: "cached",
+		});
+
+		window.dispatchEvent(
+			new window.MessageEvent("message", {
+				data: {
+					type: "registry/update",
+					model: {
+						modules: [],
+						gen: [],
+						undeclared: [
+							dep("buf.build", "public"),
+							dep("buf.example.com", "internal"),
+						],
+						updatesChecked: true,
+					},
+				},
+			}),
+		);
+		await window.happyDOM.waitUntilComplete();
+
+		window.dispatchEvent(
+			new window.MessageEvent("message", {
+				data: { type: "registry/focus", remote: "buf.example.com" },
+			}),
+		);
+		await window.happyDOM.waitUntilComplete();
+
+		const text = window.document.body.textContent ?? "";
+		// Focus is a filter, not a highlight: the other registry's module is gone.
+		expect(text).toContain("internal");
+		expect(text).not.toContain("public");
+		expect(local.errors).toEqual([]);
+		await window.happyDOM.close();
+	});
+});

@@ -43,7 +43,7 @@ export class DetailsPanel {
 
 	private constructor(
 		private readonly panel: vscode.WebviewPanel,
-		private readonly extensionUri: vscode.Uri,
+		extensionUri: vscode.Uri,
 		private readonly index: ProtoIndex | undefined,
 		private readonly diagnostics: vscode.DiagnosticCollection,
 	) {

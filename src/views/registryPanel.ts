@@ -79,6 +79,16 @@ export class RegistryPanel {
 		return RegistryPanel.instance;
 	}
 
+	/**
+	 * Scope the panel to one registry host.
+	 *
+	 * Sent rather than stored: the panel owns its own selection, and a host
+	 * that duplicated it would be a second source of truth to keep in step.
+	 */
+	focusRemote(remote: string | undefined): void {
+		this.channel.post({ type: "registry/focus", remote: remote ?? null });
+	}
+
 	/** Push a freshly built model into an open panel. */
 	push(model: DependencyModel): void {
 		this.model = model;

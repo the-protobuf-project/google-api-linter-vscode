@@ -233,6 +233,13 @@ export interface RegistryUpdate {
 	readonly model: DependencyModel;
 }
 
+/** Scopes the Registry panel to one registry host. */
+export interface RegistryFocus {
+	readonly type: "registry/focus";
+	/** Host to select, e.g. `buf.build`. `null` clears the scope. */
+	readonly remote: string | null;
+}
+
 /** Long operations report progress rather than freezing a button. */
 export interface TaskProgress {
 	readonly type: "task/progress";
@@ -242,7 +249,11 @@ export interface TaskProgress {
 	readonly message?: string;
 }
 
-export type HostMessage = DetailsUpdate | RegistryUpdate | TaskProgress;
+export type HostMessage =
+	| DetailsUpdate
+	| RegistryUpdate
+	| RegistryFocus
+	| TaskProgress;
 
 /* ------------------------------------------------------------------ *
  * Messages: panel → host

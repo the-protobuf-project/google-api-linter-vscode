@@ -83,6 +83,16 @@ $effect(() => {
 			}
 			return;
 		}
+		if (message.type === "registry/focus") {
+			// Opened from the Registries view: scope to that host, and drop the
+			// selection, which belonged to a module on a different registry.
+			filter = (
+				message.remote ? `remote:${message.remote}` : DEFAULT_FILTER
+			) as FilterId;
+			selectedName = undefined;
+			persist();
+			return;
+		}
 		if (message.type === "task/progress") {
 			settle(message.taskId, {
 				taskId: message.taskId,

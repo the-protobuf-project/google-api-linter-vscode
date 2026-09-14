@@ -43,6 +43,7 @@ export type FilterId =
 	| "ws:cached"
 	| "ws:orphaned"
 	| `owner:${string}`
+	| `remote:${string}`
 	| "gen:plugins";
 
 /** What the selection in the rail resolves to before anything is persisted. */
@@ -191,6 +192,11 @@ export function filterDeps(
 		case "gen:plugins":
 			return [];
 		default:
+			// Two prefixed families share this arm: a registry host and an owner.
+			if (filter.startsWith("remote:")) {
+				const remote = filter.slice("remote:".length);
+				return deps.filter((dep) => dep.remote === remote);
+			}
 			return deps.filter((dep) => dep.owner === filter.slice("owner:".length));
 	}
 }
@@ -403,8 +409,14 @@ export interface RailGroup {
 export function buildRail(model: DependencyModel): readonly RailGroup[] {
 	const deps = allDeps(model);
 	const owners = new Map<string, number>();
+	// Registries are counted from the dependencies rather than from settings:
+	// a workspace pulling from a host nobody configured still gets a row.
+	const remotes = new Map<string, number>();
 	for (const dep of deps) {
 		owners.set(dep.owner, (owners.get(dep.owner) ?? 0) + 1);
+		if (dep.remote) {
+			remotes.set(dep.remote, (remotes.get(dep.remote) ?? 0) + 1);
+		}
 	}
 	const plugins = model.gen.reduce(
 		(total, config) => total + config.plugins.length,
@@ -442,7 +454,18 @@ export function buildRail(model: DependencyModel): readonly RailGroup[] {
 			],
 		},
 		{
-			label: "Registry",
+			label: "Registries",
+			items: [...remotes]
+				.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+				.map(([remote, count]) => ({
+					id: `remote:${remote}` as FilterId,
+					label: remote,
+					icon: "registry" as IconName,
+					count,
+				})),
+		},
+		{
+			label: "Owners",
 			items: [...owners]
 				.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
 				.map(([owner, count]) => ({

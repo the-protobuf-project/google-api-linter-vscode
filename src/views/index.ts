@@ -27,6 +27,13 @@ import {
 import { DetailsPanel } from "./detailsPanel";
 import { DETAILS_VIEW_ID, DetailsViewProvider } from "./detailsView";
 import { PROBLEMS_VIEW_ID, ProblemsProvider } from "./problemsView";
+import {
+	configuredRegistries,
+	promptForRegistry,
+	REGISTRIES_VIEW_ID,
+	RegistriesProvider,
+	type RegistryNode,
+} from "./registriesView";
 import { RegistryPanel } from "./registryPanel";
 import { searchSymbols } from "./symbolSearch";
 
@@ -125,7 +132,23 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 		invalidateDepCaches();
 		lastModel = undefined;
 		dependencies.refresh();
+		registries.refresh();
 	};
+
+	const registries = new RegistriesProvider(() => lastModel);
+	context.subscriptions.push(
+		vscode.window.createTreeView(REGISTRIES_VIEW_ID, {
+			treeDataProvider: registries,
+		}),
+		registries,
+		// A host added or removed in settings changes the rows, and nothing
+		// else would tell the view that.
+		vscode.workspace.onDidChangeConfiguration((event) => {
+			if (event.affectsConfiguration("gapi.registries")) {
+				registries.refresh();
+			}
+		}),
+	);
 
 	/* ---------------------------------------------------------------- *
 	 * Problems
@@ -214,6 +237,21 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 		);
 	};
 
+	/**
+	 * Signs in to a registry through a terminal.
+	 *
+	 * `buf registry login` opens a browser and then waits on a TTY for the
+	 * token, so it has to run somewhere the user can type. Capturing its output
+	 * instead would hang forever on a prompt nobody can see.
+	 */
+	const signIn = async (host: string): Promise<void> => {
+		const terminal = vscode.window.createTerminal({
+			name: `buf login — ${host}`,
+		});
+		terminal.show();
+		terminal.sendText(`${bufPath()} registry login ${host}`);
+	};
+
 	/* ---------------------------------------------------------------- *
 	 * Commands
 	 * ---------------------------------------------------------------- */
@@ -228,9 +266,64 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 		});
 
 	context.subscriptions.push(
-		vscode.commands.registerCommand("googleApiLinter.openRegistry", () => {
-			registry();
+		vscode.commands.registerCommand(
+			"googleApiLinter.openRegistry",
+			(host?: string) => {
+				registry().focusRemote(typeof host === "string" ? host : undefined);
+			},
+		),
+
+		vscode.commands.registerCommand("googleApiLinter.addRegistry", async () => {
+			const host = await promptForRegistry();
+			if (!host) {
+				return;
+			}
+			registries.refresh();
+			const choice = await vscode.window.showInformationMessage(
+				`Added ${host}. Sign in to browse private modules.`,
+				"Sign in",
+				"Browse",
+			);
+			if (choice === "Sign in") {
+				await signIn(host);
+			} else if (choice === "Browse") {
+				registry().focusRemote(host);
+			}
 		}),
+
+		vscode.commands.registerCommand(
+			"googleApiLinter.removeRegistry",
+			async (node?: RegistryNode) => {
+				if (node?.kind !== "registry") {
+					return;
+				}
+				const config = vscode.workspace.getConfiguration("gapi");
+				const kept = config
+					.get<string[]>("registries", [])
+					.filter((entry) => entry.trim().toLowerCase() !== node.host);
+				await config.update(
+					"registries",
+					kept,
+					vscode.ConfigurationTarget.Global,
+				);
+				registries.refresh();
+			},
+		),
+
+		vscode.commands.registerCommand(
+			"googleApiLinter.loginRegistry",
+			async (node?: RegistryNode) => {
+				const host =
+					node?.kind === "registry"
+						? node.host
+						: await vscode.window.showQuickPick(configuredRegistries(), {
+								title: "Sign in to which registry?",
+							});
+				if (host) {
+					await signIn(host);
+				}
+			},
+		),
 
 		vscode.commands.registerCommand(
 			"googleApiLinter.problems.groupByRule",
@@ -314,7 +407,7 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 		vscode.commands.registerCommand(
 			"googleApiLinter.dependencies.generatePlugin",
 			async (node?: DepNode) => {
-				if (!node || node.kind !== "plugin") {
+				if (node?.kind !== "plugin") {
 					void vscode.window.showInformationMessage(
 						"Pick a plugin under Generate in the Dependencies view.",
 					);
