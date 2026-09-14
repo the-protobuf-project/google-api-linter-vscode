@@ -601,19 +601,17 @@ describe("root", () => {
 		expect(index.reads.symbolsInFile).toBe(0);
 	});
 
-	test("adds an Annotations section only when the index found some", async () => {
-		const without = new FakeIndex(smallWorkspace());
-		expect(
-			sectionIds(await harness({ index: without }).provider.getChildren()),
-		).not.toContain("annotations");
-
+	test("does not list annotations — they belong with the dependencies", async () => {
+		// The count here was `registry.all().length`: every annotation the
+		// scanner ever saw, including the nineteen in googleapis and everything
+		// in the buf cache. A workspace using three of them read as dozens, and
+		// the list was mostly options the project never mentions. What a
+		// project uses is a fact about its dependencies, so it is shown there.
 		const with_ = new FakeIndex(smallWorkspace(), {
 			annotations: [annotation("mcp.v1.tool", "Method")],
 		});
 		const roots = await harness({ index: with_ }).provider.getChildren();
-		expect(sectionIds(roots)).toContain("annotations");
-		const node = section(roots, "annotations");
-		expect(node.kind === "section" && node.count).toBe(1);
+		expect(sectionIds(roots)).not.toContain("annotations");
 	});
 
 	test("replaces the symbol sections with a notice when there is no index", async () => {
@@ -1271,6 +1269,21 @@ describe("version grouping", () => {
 });
 
 describe("annotations section", () => {
+	/**
+	 * The section node, built rather than looked up.
+	 *
+	 * Annotations are no longer listed at the root of Structure — what a
+	 * project uses is a fact about its dependencies and is shown there. The
+	 * rendering below is still the rendering, so these reach it directly
+	 * instead of through a root that no longer offers it.
+	 */
+	const ANNOTATIONS: ProtoTreeNode = {
+		kind: "section",
+		id: "annotations",
+		label: "Annotations",
+		icon: "symbol-keyword",
+	};
+
 	const annotations = [
 		annotation("mcp.v1.tool", "Method", { fileId: 0, line: 11 }),
 		annotation("mcp.v1.resource", "Message", { fileId: 0, line: 21 }),
@@ -1289,10 +1302,7 @@ describe("annotations section", () => {
 
 	test("lists namespaces alphabetically with their counts", async () => {
 		const { provider } = harness({ index: annotatedIndex() });
-		const roots = await provider.getChildren();
-		const namespaces = await provider.getChildren(
-			section(roots, "annotations"),
-		);
+		const namespaces = await provider.getChildren(ANNOTATIONS);
 
 		expect(labels(namespaces)).toEqual(["cache.v1", "mcp.v1"]);
 		const item = provider.getTreeItem(namespaces[1]);
@@ -1306,10 +1316,7 @@ describe("annotations section", () => {
 
 	test("expands a namespace into its annotations, name-sorted", async () => {
 		const { provider } = harness({ index: annotatedIndex() });
-		const roots = await provider.getChildren();
-		const namespaces = await provider.getChildren(
-			section(roots, "annotations"),
-		);
+		const namespaces = await provider.getChildren(ANNOTATIONS);
 		const items = await provider.getChildren(namespaces[1]);
 
 		expect(labels(items)).toEqual(["resource", "tool"]);

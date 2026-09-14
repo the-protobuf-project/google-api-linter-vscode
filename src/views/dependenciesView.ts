@@ -13,6 +13,7 @@
 
 import * as path from "node:path";
 import * as vscode from "vscode";
+import type { AnnotationUsage } from "../annotations/usage";
 import type {
 	BufDep,
 	DependencyModel,
@@ -27,7 +28,7 @@ export const DEPENDENCIES_VIEW_ID = "googleApiLinter.views.dependencies";
 export type DepNode =
 	| {
 			kind: "section";
-			id: "declared" | "generate" | "runtime";
+			id: "declared" | "generate" | "runtime" | "annotations";
 			label: string;
 			count: number;
 			icon: string;
@@ -36,6 +37,7 @@ export type DepNode =
 	| { kind: "dep"; dep: BufDep }
 	| { kind: "gen"; config: GenConfig }
 	| { kind: "runtime"; name: string; commit: string; detail: string }
+	| { kind: "usedAnnotation"; usage: AnnotationUsage }
 	| { kind: "plugin"; plugin: GenPlugin; configPath: string }
 	| {
 			kind: "info";
@@ -81,6 +83,8 @@ export class DependenciesProvider
 
 	private model: DependencyModel | undefined;
 	private loading = false;
+	/** Applied annotations, counted once per load so the root stays cheap. */
+	private annotationCount = 0;
 
 	constructor(
 		private readonly load: () => Promise<DependencyModel>,
@@ -95,6 +99,18 @@ export class DependenciesProvider
 			googleapis: () => Promise<string>;
 			protobuf: () => Promise<string>;
 		},
+		/**
+		 * Annotations the workspace actually applies.
+		 *
+		 * Not every annotation the scanner found: that count was
+		 * `registry.all().length`, which includes the nineteen googleapis
+		 * declares and everything in the buf cache, so a project using three
+		 * read as dozens. What a project uses is a fact about its dependencies,
+		 * which is why it is here rather than in Structure.
+		 */
+		private readonly usedAnnotations?: () => Promise<
+			readonly AnnotationUsage[]
+		>,
 	) {}
 
 	/** Drop the cached model and redraw. */
@@ -214,6 +230,37 @@ export class DependenciesProvider
 			return item;
 		}
 
+		if (node.kind === "usedAnnotation") {
+			const { usage } = node;
+			const item = new vscode.TreeItem(
+				usage.descriptor.name,
+				vscode.TreeItemCollapsibleState.None,
+			);
+			item.description = `${usage.descriptor.namespace} · ${usage.count}×`;
+			item.iconPath = new vscode.ThemeIcon(
+				"symbol-keyword",
+				new vscode.ThemeColor("symbolIcon.keywordForeground"),
+			);
+			item.contextValue = "usedAnnotation";
+			item.tooltip = new vscode.MarkdownString(
+				[
+					`**${usage.descriptor.fqn}**`,
+					"",
+					usage.descriptor.doc ??
+						`Extends \`${usage.descriptor.target}Options\`.`,
+					"",
+					`Applied ${usage.count} time(s) in ${usage.fileIds.length} file(s).`,
+					"",
+					"**Import**",
+					"",
+					"```proto",
+					`import "${usage.descriptor.importPath}";`,
+					"```",
+				].join("\n"),
+			);
+			return item;
+		}
+
 		if (node.kind === "gen") {
 			const item = new vscode.TreeItem(
 				path.basename(node.config.path),
@@ -304,7 +351,17 @@ export class DependenciesProvider
 			if (node.id === "generate") {
 				return model.gen.map((config) => ({ kind: "gen" as const, config }));
 			}
-			return node.id === "runtime" ? this.runtimeNodes() : [];
+			if (node.id === "runtime") {
+				return this.runtimeNodes();
+			}
+			if (node.id === "annotations") {
+				const usages = (await this.usedAnnotations?.()) ?? [];
+				return usages.map((usage) => ({
+					kind: "usedAnnotation" as const,
+					usage,
+				}));
+			}
+			return [];
 		}
 
 		if (node.kind === "module") {
@@ -352,6 +409,16 @@ export class DependenciesProvider
 				icon: "info",
 				tooltip:
 					"Add a module to `deps:` in `buf.yaml`, or open the Proto Registry to browse what is available.",
+			});
+		}
+
+		if (this.annotationCount > 0) {
+			nodes.push({
+				kind: "section",
+				id: "annotations",
+				label: "Annotations in use",
+				count: this.annotationCount,
+				icon: "symbol-keyword",
 			});
 		}
 
@@ -415,6 +482,7 @@ export class DependenciesProvider
 		this.loading = true;
 		try {
 			this.model = await this.load();
+			this.annotationCount = ((await this.usedAnnotations?.()) ?? []).length;
 			return this.model;
 		} catch {
 			return undefined;

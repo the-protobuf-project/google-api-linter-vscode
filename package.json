@@ -430,6 +430,12 @@
 				"title": "Reinstall All Tools (force)",
 				"category": "Protobuf AIP Linter",
 				"icon": "$(sync)"
+			},
+			{
+				"command": "googleApiLinter.fixAllInFile",
+				"title": "Fix All AIP Findings in This File",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(lightbulb-autofix)"
 			}
 		],
 		"menus": {

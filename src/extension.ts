@@ -32,6 +32,7 @@ import { createProtoIndex } from "./index";
 import type { IndexBudget, ProtoIndex } from "./index/types";
 import { ApiLinterProvider } from "./linterProvider";
 import { registerProtoView } from "./protoView";
+import { registerQuickFixes } from "./quickfix/provider";
 import { ProtoReferenceProvider } from "./referenceProvider";
 import { ProtoRenameProvider } from "./renameProvider";
 import { registerReportIssueCommand } from "./reportIssue";
@@ -154,6 +155,10 @@ export async function activate(context: vscode.ExtensionContext) {
 			registerReferenceProvider(protoDocSelector, index),
 			registerRenameProvider(protoDocSelector, index),
 			registerCodeActionProvider(protoDocSelector),
+			// Fixes derived from what the linter reported, rather than from
+			// patterns guessed at here. Registered alongside the existing
+			// provider: they offer different things and VS Code merges them.
+			...registerQuickFixes(protoDocSelector),
 			registerDocumentLinkProvider(protoDocSelector),
 			registerFormatProvider(protoDocSelector),
 			registerDocumentSymbolProvider(protoDocSelector),

@@ -1181,7 +1181,6 @@ export class ProtoTreeDataProvider
 		if (!index) {
 			roots.push(this.noIndexNode());
 		} else {
-			const stats = index.stats();
 			// Above the ceiling the sections are still listed — they group by
 			// package version instead of refusing. The node only says so.
 			if (this.overCeiling()) {
@@ -1224,15 +1223,6 @@ export class ProtoTreeDataProvider
 					icon: "symbol-enum",
 				},
 			);
-			if (stats.annotationCount > 0) {
-				roots.push({
-					kind: "section",
-					id: "annotations",
-					label: "Annotations",
-					count: stats.annotationCount,
-					icon: "symbol-keyword",
-				});
-			}
 		}
 
 		return roots;

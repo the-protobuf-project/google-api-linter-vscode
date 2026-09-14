@@ -9,6 +9,8 @@
 
 import * as path from "node:path";
 import * as vscode from "vscode";
+import type { AnnotationUsage } from "../annotations/usage";
+import { collectAnnotationUsage } from "../annotations/usage";
 import {
 	buildDependencyModel,
 	checkUpdates,
@@ -152,7 +154,26 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 		return lastModel;
 	};
 
-	const dependencies = new DependenciesProvider(loadModel, runtime);
+	/**
+	 * Annotations the workspace applies, cached until the index changes.
+	 *
+	 * Reading every workspace proto is not something to redo each time a tree
+	 * node expands, and the answer only moves when the files do.
+	 */
+	let usageCache: Promise<readonly AnnotationUsage[]> | undefined;
+	const usedAnnotations = (): Promise<readonly AnnotationUsage[]> => {
+		if (!index) {
+			return Promise.resolve([]);
+		}
+		usageCache ??= collectAnnotationUsage(index).catch(() => []);
+		return usageCache;
+	};
+
+	const dependencies = new DependenciesProvider(
+		loadModel,
+		runtime,
+		usedAnnotations,
+	);
 	context.subscriptions.push(
 		vscode.window.createTreeView(DEPENDENCIES_VIEW_ID, {
 			treeDataProvider: dependencies,
@@ -166,6 +187,7 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 		invalidateModuleGraphCache();
 		invalidateDepCaches();
 		lastModel = undefined;
+		usageCache = undefined;
 		dependencies.refresh();
 		registries.refresh();
 	};
