@@ -63,6 +63,11 @@
 					"default": true,
 					"description": "Run linter automatically when saving proto files."
 				},
+				"gapi.lintOnStartup": {
+					"type": "boolean",
+					"default": true,
+					"description": "Lint the whole workspace once when it opens, so problems are listed before you touch a file. Turn off if you would rather lint only on save or on demand."
+				},
 				"gapi.enableOnType": {
 					"type": "boolean",
 					"default": false,

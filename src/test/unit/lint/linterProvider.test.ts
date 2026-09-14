@@ -1192,6 +1192,39 @@ describe("lintWorkspace", () => {
 		return withNotifications("showInformationMessage", body);
 	}
 
+	test("says nothing when a silent run finds no protos", async () => {
+		// The startup lint runs on every window. A workspace with no protos is
+		// an ordinary thing to open, and interrupting to announce it would make
+		// the feature a nuisance in every unrelated project.
+		const { provider } = makeProvider();
+		stubBinary(provider, binaryPath);
+
+		const quiet = await withMessages(() =>
+			withProtos([], () => provider.lintWorkspace({ silent: true })),
+		);
+		expect(quiet).toEqual([]);
+
+		// Asked for explicitly, the same case must still answer: the reader
+		// pressed a button and is owed a result.
+		const asked = await withMessages(() =>
+			withProtos([], () => provider.lintWorkspace()),
+		);
+		expect(asked).toEqual(["No .proto files found in workspace."]);
+		provider.dispose();
+	});
+
+	test("does not announce completion of a silent run", async () => {
+		const { provider } = makeProvider();
+		stubBinary(provider, binaryPath);
+
+		const quiet = await withMessages(() =>
+			withProtos([ONE, TWO], () => provider.lintWorkspace({ silent: true })),
+		);
+		// The findings are the result, and they are already in Problems.
+		expect(quiet).toEqual([]);
+		provider.dispose();
+	});
+
 	test("runs one process per directory, not one per file", async () => {
 		const { provider } = makeProvider();
 		stubBinary(provider, binaryPath);

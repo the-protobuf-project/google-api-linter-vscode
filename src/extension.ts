@@ -232,6 +232,26 @@ export async function activate(context: vscode.ExtensionContext) {
 			context.subscriptions.push(protoWatcher);
 		}
 
+		// Lint the workspace once on open, so the Problems view describes the
+		// project rather than only the files the reader happens to touch. Not
+		// awaited: activation must not wait on a binary download or a lint of
+		// a large tree, and the findings land whenever they land.
+		if (
+			vscode.workspace
+				.getConfiguration("gapi")
+				.get<boolean>("lintOnStartup", true)
+		) {
+			void linterProvider.lintWorkspace({ silent: true }).catch((error) => {
+				// A failed startup lint is a log line, not a dialog: the reader
+				// did not ask for this run and cannot act on it mid-open.
+				outputChannel.appendLine(
+					`[lint] startup lint failed: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				);
+			});
+		}
+
 		registerStatusBar(context, diagnosticCollection);
 
 		const configDiagnosticCollection =

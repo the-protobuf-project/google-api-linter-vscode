@@ -341,18 +341,27 @@ export class ApiLinterProvider {
 	 * Lints all proto files in the workspace using batched api-linter invocations
 	 * (many file arguments per process), then schedules one workspace syntax check.
 	 */
-	public async lintWorkspace(): Promise<void> {
+	public async lintWorkspace(
+		options: { silent?: boolean } = {},
+	): Promise<void> {
+		const { silent = false } = options;
 		if (this.workspaceLintInProgress) {
-			vscode.window.showInformationMessage(
-				"Workspace lint is already running.",
-			);
+			if (!silent) {
+				vscode.window.showInformationMessage(
+					"Workspace lint is already running.",
+				);
+			}
 			return;
 		}
 		const protoFiles = await findProtoFiles();
 		if (protoFiles.length === 0) {
-			vscode.window.showInformationMessage(
-				"No .proto files found in workspace.",
-			);
+			// Silent callers are automatic ones. A workspace with no protos is
+			// an ordinary thing to open, not something to interrupt over.
+			if (!silent) {
+				vscode.window.showInformationMessage(
+					"No .proto files found in workspace.",
+				);
+			}
 			return;
 		}
 
@@ -361,7 +370,11 @@ export class ApiLinterProvider {
 		try {
 			await vscode.window.withProgress(
 				{
-					location: vscode.ProgressLocation.Notification,
+					// A startup lint reports in the status bar; a lint the user
+					// asked for gets a notification, because they are waiting on it.
+					location: silent
+						? vscode.ProgressLocation.Window
+						: vscode.ProgressLocation.Notification,
 					title: "Protobuf AIP Linter",
 					cancellable: false,
 				},
@@ -408,9 +421,18 @@ export class ApiLinterProvider {
 			);
 			// One whole-workspace `buf build`, not one per file.
 			this.scheduleWorkspaceSyntaxCheck();
-			vscode.window.showInformationMessage(
-				`Protobuf AIP Linter: workspace linting completed (${total} file(s)).`,
-			);
+			if (silent) {
+				// The findings are the result, and they are already in the
+				// Problems view. Saying so as well would interrupt the reader
+				// on every window they open.
+				this.outputChannel.appendLine(
+					`Workspace lint complete: ${total} file(s).`,
+				);
+			} else {
+				vscode.window.showInformationMessage(
+					`Protobuf AIP Linter: workspace linting completed (${total} file(s)).`,
+				);
+			}
 		} finally {
 			this.workspaceLintInProgress = false;
 		}
