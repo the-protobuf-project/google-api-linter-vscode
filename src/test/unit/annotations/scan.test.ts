@@ -460,6 +460,14 @@ describe("scanRootsInto", () => {
 			// root reads anything, so the unreadable case cannot be staged.
 			return;
 		}
+		if (process.platform === "win32") {
+			// Same problem as root, for a different reason: Windows has no
+			// POSIX permission bits, and Node maps `chmod` there onto the
+			// read-only flag alone — it cannot withdraw read access. The
+			// "locked" file stays readable, both files are scanned, and the
+			// assertion measures the platform rather than the scanner.
+			return;
+		}
 		const root = tree({
 			"readable.proto": proto("ok.v1", "ok", 1),
 			"locked.proto": proto("locked.v1", "locked", 2),
