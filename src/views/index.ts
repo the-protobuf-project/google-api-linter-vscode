@@ -7,6 +7,7 @@
  * path from turning into a second copy of it.
  */
 
+import * as path from "node:path";
 import * as vscode from "vscode";
 import {
 	buildDependencyModel,
@@ -16,8 +17,12 @@ import {
 import type { ProtoIndex } from "../index/types";
 import type { DependencyModel } from "../shared/protocol";
 import { invalidateModuleGraphCache } from "../utils/moduleGraph";
-import { generate, updateDependencies } from "./bufActions";
-import { DEPENDENCIES_VIEW_ID, DependenciesProvider } from "./dependenciesView";
+import { generate, generatePlugin, updateDependencies } from "./bufActions";
+import {
+	DEPENDENCIES_VIEW_ID,
+	DependenciesProvider,
+	type DepNode,
+} from "./dependenciesView";
 import { DETAILS_VIEW_ID, DetailsViewProvider } from "./detailsView";
 import { PROBLEMS_VIEW_ID, ProblemsProvider } from "./problemsView";
 import { RegistryPanel } from "./registryPanel";
@@ -58,6 +63,11 @@ function bufPath(): string {
 	);
 }
 
+/** The directory holding a file, for running a plugin where it was declared. */
+function dirOf(filePath: string): string {
+	return path.dirname(filePath);
+}
+
 /**
  * Creates the Problems, Details and Dependencies views and their commands.
  *
@@ -79,6 +89,13 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 
 	const loadModel = async (): Promise<DependencyModel> => {
 		lastModel = await buildDependencyModel({ log });
+		// Drives the view's welcome content, which is the only signposted way
+		// into the Registry for someone who has not found the toolbar.
+		void vscode.commands.executeCommand(
+			"setContext",
+			"googleApiLinter.hasDeps",
+			lastModel.modules.some((module) => module.deps.length > 0),
+		);
 		return lastModel;
 	};
 
@@ -226,6 +243,50 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 
 		vscode.commands.registerCommand("googleApiLinter.structure.search", () =>
 			searchSymbols(index),
+		),
+
+		vscode.commands.registerCommand(
+			"googleApiLinter.dependencies.generatePlugin",
+			async (node?: DepNode) => {
+				if (!node || node.kind !== "plugin") {
+					void vscode.window.showInformationMessage(
+						"Pick a plugin under Generate in the Dependencies view.",
+					);
+					return;
+				}
+				// The plugin's own module root, not the workspace's first one:
+				// `out:` paths are relative to the buf.gen.yaml that declared them.
+				const root = dirOf(node.configPath);
+				await vscode.window.withProgress(
+					{
+						location: vscode.ProgressLocation.Notification,
+						title: `buf generate — ${node.plugin.ref}`,
+					},
+					async () => {
+						const result = await generatePlugin(
+							node.configPath,
+							node.plugin.ref,
+							root,
+							log,
+						);
+						if (result.ok) {
+							void vscode.window.showInformationMessage(
+								`Generated ${node.plugin.ref} into ${node.plugin.out}`,
+							);
+							return;
+						}
+						const detail =
+							result.stderr.trim().split("\n")[0] || "see the output channel";
+						const choice = await vscode.window.showErrorMessage(
+							`buf generate failed: ${detail}`,
+							"Show Output",
+						);
+						if (choice === "Show Output") {
+							log.show(true);
+						}
+					},
+				);
+			},
 		),
 
 		vscode.commands.registerCommand(

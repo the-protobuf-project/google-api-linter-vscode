@@ -215,8 +215,7 @@
 				{
 					"id": "googleApiLinter.views.dependencies",
 					"name": "Dependencies",
-					"contextualTitle": "Proto",
-					"visibility": "collapsed"
+					"contextualTitle": "Proto"
 				}
 			]
 		},
@@ -323,6 +322,12 @@
 				"command": "googleApiLinter.problems.groupByRule",
 				"title": "Group by Rule",
 				"icon": "$(list-tree)"
+			},
+			{
+				"command": "googleApiLinter.dependencies.generatePlugin",
+				"title": "Generate This Plugin",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(play)"
 			}
 		],
 		"menus": {
@@ -394,6 +399,21 @@
 					"command": "googleApiLinter.formatFileFromTree",
 					"when": "view == googleApiLinter.views.structure",
 					"group": "1_modification"
+				},
+				{
+					"command": "googleApiLinter.dependencies.generatePlugin",
+					"when": "view == googleApiLinter.views.dependencies && viewItem =~ /^genPlugin:/",
+					"group": "inline"
+				},
+				{
+					"command": "googleApiLinter.dependencies.generatePlugin",
+					"when": "view == googleApiLinter.views.dependencies && viewItem =~ /^genPlugin:/",
+					"group": "1_run"
+				},
+				{
+					"command": "googleApiLinter.dependencies.generate",
+					"when": "view == googleApiLinter.views.dependencies && viewItem == genConfig",
+					"group": "inline"
 				}
 			]
 		},
@@ -471,6 +491,13 @@
 						"invalid"
 					]
 				}
+			}
+		],
+		"viewsWelcome": [
+			{
+				"view": "googleApiLinter.views.dependencies",
+				"contents": "Browse the Proto Registry to add a module from the Buf Schema Registry.\\n[Open Proto Registry](command:googleApiLinter.openRegistry)\\nDependencies come from `deps:` in your `buf.yaml`.",
+				"when": "!googleApiLinter.hasDeps"
 			}
 		]
 	},

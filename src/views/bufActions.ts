@@ -11,7 +11,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import * as vscode from "vscode";
-import { parseDocument, YAMLSeq } from "yaml";
+import { parseDocument, parse as parseYaml, YAMLSeq } from "yaml";
 
 const execFileAsync = promisify(execFile);
 
@@ -163,4 +163,76 @@ export async function generate(
 	log?: vscode.OutputChannel,
 ): Promise<CommandResult> {
 	return runBuf(["generate"], root, log);
+}
+
+/**
+ * Runs `buf generate` for exactly one plugin of a `buf.gen.yaml`.
+ *
+ * The template is the original file with its `plugins:` list narrowed to the
+ * chosen entry, rather than a fresh one-plugin document. `managed:` and its
+ * `override:` rules change the generated code, so a synthesised template would
+ * quietly produce output that differs from a full run — the opposite of what
+ * someone regenerating a single target wants.
+ *
+ * @param genPath - Absolute path of the `buf.gen.yaml`
+ * @param pluginRef - The plugin's `remote`/`local`/`protoc_builtin` value
+ * @param root - Module directory to run in
+ * @param log - Output channel to echo the invocation into
+ * @returns Exit status and captured output
+ */
+export async function generatePlugin(
+	genPath: string,
+	pluginRef: string,
+	root: string,
+	log?: vscode.OutputChannel,
+): Promise<CommandResult> {
+	let text: string;
+	try {
+		text = Buffer.from(
+			await vscode.workspace.fs.readFile(vscode.Uri.file(genPath)),
+		).toString("utf8");
+	} catch {
+		return { ok: false, stdout: "", stderr: `Could not read ${genPath}` };
+	}
+
+	let doc: Record<string, unknown>;
+	try {
+		doc = parseYaml(text) as Record<string, unknown>;
+	} catch (error) {
+		return {
+			ok: false,
+			stdout: "",
+			stderr: `${genPath} is not valid YAML: ${
+				error instanceof Error ? error.message : String(error)
+			}`,
+		};
+	}
+
+	const plugins = Array.isArray(doc?.plugins) ? doc.plugins : [];
+	const chosen = plugins.filter((entry) => {
+		if (!entry || typeof entry !== "object") {
+			return false;
+		}
+		const record = entry as Record<string, unknown>;
+		return (
+			record.remote === pluginRef ||
+			record.local === pluginRef ||
+			record.protoc_builtin === pluginRef ||
+			record.plugin === pluginRef ||
+			record.name === pluginRef
+		);
+	});
+
+	if (chosen.length === 0) {
+		return {
+			ok: false,
+			stdout: "",
+			stderr: `${pluginRef} is no longer in ${genPath}`,
+		};
+	}
+
+	// `--template` takes JSON as well as a path, so the narrowed config never
+	// has to be written to disk beside the user's own.
+	const template = JSON.stringify({ ...doc, plugins: chosen });
+	return runBuf(["generate", "--template", template], root, log);
 }

@@ -27,7 +27,7 @@ export const DEPENDENCIES_VIEW_ID = "googleApiLinter.views.dependencies";
 export type DepNode =
 	| {
 			kind: "section";
-			id: "declared" | "generate" | "undeclared" | "runtime";
+			id: "declared" | "generate" | "runtime";
 			label: string;
 			count: number;
 			icon: string;
@@ -304,10 +304,7 @@ export class DependenciesProvider
 			if (node.id === "generate") {
 				return model.gen.map((config) => ({ kind: "gen" as const, config }));
 			}
-			if (node.id === "runtime") {
-				return this.runtimeNodes();
-			}
-			return model.undeclared.map((dep) => ({ kind: "dep" as const, dep }));
+			return node.id === "runtime" ? this.runtimeNodes() : [];
 		}
 
 		if (node.kind === "module") {
@@ -347,17 +344,7 @@ export class DependenciesProvider
 			});
 		}
 
-		if (model.undeclared.length > 0) {
-			nodes.push({
-				kind: "section",
-				id: "undeclared",
-				label: "Cached, not declared",
-				count: model.undeclared.length,
-				icon: "archive",
-			});
-		}
-
-		if (declared === 0 && model.undeclared.length === 0) {
+		if (declared === 0) {
 			nodes.push({
 				kind: "info",
 				label: "No buf dependencies",
