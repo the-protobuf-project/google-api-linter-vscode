@@ -8,6 +8,26 @@ All notable changes to this extension are documented here. The format follows
 
 ### Fixed
 
+- **Enum values inside an option body are highlighted.** The `kv` rule's end
+  pattern is a lookahead on the first letter of the *value*, so it closed the
+  rule before `#constants` could ever match and every identifier written after
+  a `:` went unscoped — `element: ELEMENT_ACTUATOR` coloured the key and left
+  the value plain, while the same member written in a `[...]` list coloured
+  fine. Across a 270-file workspace that was 1,592 tokens. The value patterns
+  now run before the end pattern, and `#constants` accepts the digits an
+  all-caps member may contain (`UNIT_M_PER_S_POW_2`).
+- **A dotted accessor chain is fully scoped.** `(\w+|\(...\))(\.\w+)*`
+  retained only the *last* repetition of the trailing group, so in
+  `(buf.validate.field).enum.defined_only` the `.enum` was unscoped and
+  `.defined_only` was not. Both `optionName` and `optionStmt` now capture the
+  whole chain in one group.
+- **Removed the dead `googleTypes` rule.** It matched
+  `google.(api|protobuf).*` at the grammar's top level, where `#field`,
+  `#optionName` and `#message` always win first: zero matches across 270 files.
+  It contributed nothing and implied custom namespaces were second-class, which
+  they are not — every option name is scoped `support.other.proto` whatever its
+  namespace.
+
 - **`.api-linter.yaml` path scoping now takes effect.** api-linter matches
   `included_paths` and `excluded_paths` against the file name it is handed, and
   the extension handed it a bare base name from inside the file's own directory
@@ -20,6 +40,16 @@ All notable changes to this extension are documented here. The format follows
 
 ### Added
 
+- **Hover on an enum value.** Hovering the `ELEMENT_ACTUATOR` in
+  `{ element: ELEMENT_ACTUATOR }` previously answered nothing: only the option
+  name and the body field name had cards, and the value — the thing a reader
+  stops on to ask "is this the right one?" — had none. The card names the
+  member, its number and the enum, renders the doc comment written on that
+  member, and lists the alternatives with the current one marked. A value the
+  enum does not declare is called out as such and the legal ones listed, which
+  turns `= REQUIRE` from a `buf build` error into something visible where it is
+  typed. Long enums are windowed around the cursor's value rather than
+  truncated from the top.
 - **`exclude` in `workspace.protobuf.yaml`**: globs naming folders and files the
   linter skips entirely — not parsed, not reported, no process spawned. A bare
   directory name covers the tree beneath it; `*` and `**` work as usual.

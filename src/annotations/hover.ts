@@ -7,7 +7,12 @@
  *   card — target, body type, field number, prose, every body field, the usage
  *   example and the defining file;
  * - a field *inside* the body — the `ttl` in `{ ttl: { seconds: 300 } }` — gets
- *   that field's own card, resolved through the body message, nesting included.
+ *   that field's own card, resolved through the body message, nesting included;
+ * - an enum *value* — the `ELEMENT_ACTUATOR` in `{ element: ELEMENT_ACTUATOR }`
+ *   — gets that member's own doc comment and the alternatives it was chosen
+ *   from. It is tested first: a value lies outside every name range, so nothing
+ *   else would answer, and "is this the right one" is the question the reader
+ *   hovering a value is actually asking.
  *
  * Every line comes from the `extend` block and the option body message. There
  * is no table of known annotations here and there must never be one: that is
@@ -20,12 +25,14 @@ import {
 	renderAnnotationCard,
 	renderDeclarationCard,
 	renderFieldCard,
+	renderValueCard,
 } from "./markdown";
 import {
 	type AnnotationSource,
 	analyzeCached,
 	definitionSite,
 	resolveDescriptor,
+	valueSiteAt,
 } from "./resolve";
 
 /**
@@ -74,6 +81,28 @@ export class AnnotationHoverProvider implements vscode.HoverProvider {
 		const offset = document.offsetAt(position);
 		const range = (start: number, end: number): vscode.Range =>
 			new vscode.Range(document.positionAt(start), document.positionAt(end));
+
+		const value = valueSiteAt(registry, model, document.getText(), offset);
+		if (value) {
+			const declaration = registry.enumOf(value.enumFqn);
+			const origin = declaration
+				? registry.origin(declaration.fileId)
+				: undefined;
+			return toHover(
+				renderValueCard(
+					value,
+					registry,
+					origin
+						? {
+								importPath: origin.importPath,
+								path: origin.path,
+								line: declaration?.line ?? 0,
+							}
+						: undefined,
+				),
+				range(value.start, value.end),
+			);
+		}
 
 		// Body fields are nested inside option references, so they are tested
 		// first: on `ttl` both regions would match, and the field is the answer.

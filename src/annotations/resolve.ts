@@ -18,6 +18,7 @@
 
 import type { AnnotationDescriptor, ProtoIndex } from "../index/types";
 import { analyzeProtoDocument, type ProtoDocumentModel } from "./document";
+import type { RawEnumValue } from "./extractor";
 import type { DefinitionSite } from "./markdown";
 import type { AnnotationRegistryImpl } from "./registry";
 
@@ -38,6 +39,8 @@ const REQUIRED_METHODS = [
 	"siteOf",
 	"importsOf",
 	"enumValues",
+	"enumMembers",
+	"enumOf",
 	"namespaces",
 	"resolveEnumFqn",
 	"resolveTypeFqn",
@@ -285,6 +288,177 @@ export function definitionSite(
 		importPath: origin?.importPath ?? descriptor.importPath,
 		path: origin?.path,
 		line: descriptor.line,
+	};
+}
+
+/** Value literals that are legal anywhere and are never enum members. */
+const VALUE_KEYWORDS = new Set(["true", "false", "inf", "nan"]);
+
+/**
+ * The identifier assigned to an option or body field, if one is written there.
+ *
+ * Only a bare identifier is returned: a string, a number or a `{` body is not a
+ * value there is anything to resolve.
+ *
+ * @param text - Full document text
+ * @param from - Offset just past the option or body field name
+ * @returns Offsets of the assigned identifier, or undefined
+ */
+export function readAssignedIdent(
+	text: string,
+	from: number,
+): { start: number; end: number; value: string } | undefined {
+	const match = /^\s*[=:]\s*([A-Za-z_]\w*)/.exec(text.slice(from));
+	if (!match) {
+		return undefined;
+	}
+	const start = from + match[0].length - match[1].length;
+	return { start, end: start + match[1].length, value: match[1] };
+}
+
+/**
+ * An enum value written as the right-hand side of an option or body field.
+ *
+ * `member` is undefined when the enum does not declare what was written —
+ * `= REQUIRE` for `REQUIRED` — which is a compile error the providers report
+ * rather than skip.
+ */
+export interface ValueSite {
+	/** Offset range of the value text. */
+	readonly start: number;
+	readonly end: number;
+	/** The identifier as written. */
+	readonly value: string;
+	/** Enum the value is resolved against. */
+	readonly enumFqn: string;
+	/** The matching member, or undefined when the enum has no such value. */
+	readonly member?: RawEnumValue;
+	/** Annotation whose value this is. */
+	readonly optionFqn: string;
+	/** Path to the body field being assigned; empty for the option itself. */
+	readonly path: readonly string[];
+}
+
+/**
+ * Resolves the enum value sitting at an offset, if one does.
+ *
+ * Body fields are tested before option references for the same reason hover
+ * orders them that way: in `(x) = { y: VALUE }` the value belongs to `y`, and
+ * resolving it against the option's own type would find the wrong enum or none.
+ *
+ * @param registry - The annotation registry
+ * @param model - Structural model of the buffer
+ * @param text - The buffer's text
+ * @param offset - Cursor offset
+ * @returns The value site, or undefined when the cursor is not on one
+ */
+export function valueSiteAt(
+	registry: AnnotationRegistryImpl,
+	model: ProtoDocumentModel,
+	text: string,
+	offset: number,
+): ValueSite | undefined {
+	for (const field of model.bodyFields) {
+		const site = valueSiteFor(
+			registry,
+			model,
+			text,
+			offset,
+			field.optionFqn,
+			field.path,
+			field.end,
+		);
+		if (site) {
+			return site;
+		}
+	}
+	for (const reference of model.options) {
+		if (reference.accessors.length > 0) {
+			continue;
+		}
+		const site = valueSiteFor(
+			registry,
+			model,
+			text,
+			offset,
+			reference.fqn,
+			[],
+			reference.end,
+		);
+		if (site) {
+			return site;
+		}
+	}
+	return undefined;
+}
+
+/**
+ * Resolves the value assigned just past one option or body field name.
+ * @param registry - The annotation registry
+ * @param model - Structural model of the buffer
+ * @param text - The buffer's text
+ * @param offset - Cursor offset
+ * @param optionFqn - Annotation being assigned
+ * @param path - Body field path, empty for the option itself
+ * @param from - Offset just past the name
+ * @returns The value site when the cursor sits inside an enum-typed value
+ */
+function valueSiteFor(
+	registry: AnnotationRegistryImpl,
+	model: ProtoDocumentModel,
+	text: string,
+	offset: number,
+	optionFqn: string,
+	path: readonly string[],
+	from: number,
+): ValueSite | undefined {
+	const assigned = readAssignedIdent(text, from);
+	if (
+		!assigned ||
+		offset < assigned.start ||
+		offset > assigned.end ||
+		VALUE_KEYWORDS.has(assigned.value)
+	) {
+		return undefined;
+	}
+	const descriptor = resolveDescriptor(registry, optionFqn, model.packageName);
+	if (!descriptor) {
+		return undefined;
+	}
+
+	// With no path the option's own type is assigned; with one, the type of the
+	// field at that path, resolved against the body that declares it.
+	let type: string;
+	let namespace: string;
+	if (path.length === 0) {
+		type = descriptor.type;
+		namespace = descriptor.namespace;
+	} else {
+		const field = registry.fieldAt(descriptor, path);
+		if (!field || field.messageFqn) {
+			return undefined;
+		}
+		const body = registry.bodyAt(descriptor, path.slice(0, -1));
+		type = field.type;
+		namespace = body
+			? body.fqn.slice(0, body.fqn.lastIndexOf("."))
+			: descriptor.namespace;
+	}
+
+	const enumFqn = registry.resolveEnumFqn(type, namespace);
+	if (!enumFqn) {
+		return undefined;
+	}
+	return {
+		start: assigned.start,
+		end: assigned.end,
+		value: assigned.value,
+		enumFqn,
+		member: registry
+			.enumMembers(enumFqn)
+			?.find((candidate) => candidate.name === assigned.value),
+		optionFqn,
+		path,
 	};
 }
 
