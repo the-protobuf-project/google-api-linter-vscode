@@ -162,6 +162,36 @@ Or in a single file, for a single rule:
 string interface = 1;
 ```
 
+### Excluding folders
+
+`included_paths` and `excluded_paths` are matched against each file's path
+relative to the `.api-linter.yaml` that declares them, so a block can govern one
+folder only. `all` stands for every rule, which is how a tree gets silenced:
+
+```yaml
+---
+- included_paths:
+    - "**/*.proto"
+  disabled_rules:
+    - core::0192::has-comments
+# Vendored protos are still linted, but no rule applies to them.
+- included_paths:
+    - "vendor/**/*.proto"
+  disabled_rules:
+    - all
+```
+
+To skip files outright — never parsed, never reported, no process spawned — list
+them under `exclude` in `workspace.protobuf.yaml`. A bare directory name covers
+everything beneath it:
+
+```yaml
+exclude:
+  - vendor
+  - third_party
+  - "**/*.pb.proto"
+```
+
 `workspace.protobuf.yaml` marks a directory as a proto workspace and can list
 extra `proto_path` entries. Both files are validated as you edit them.
 

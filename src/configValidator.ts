@@ -5,6 +5,8 @@ import * as vscode from "vscode";
 const CONFIG_DIAGNOSTIC_SOURCE = "protobuf-aip-linter (config)";
 
 const KNOWN_API_LINTER_KEYS = new Set([
+	"included_paths",
+	"excluded_paths",
 	"disabled_rules",
 	"enabled_rules",
 	"proto_paths",
@@ -12,7 +14,12 @@ const KNOWN_API_LINTER_KEYS = new Set([
 	"descriptor_set_in",
 ]);
 
-const KNOWN_WORKSPACE_PROTOBUF_KEYS = new Set(["proto_path"]);
+const KNOWN_WORKSPACE_PROTOBUF_KEYS = new Set([
+	"proto_path",
+	"proto_paths",
+	"exclude",
+	"excluded_paths",
+]);
 
 /**
  * Validate .api-linter.yaml: unknown keys, invalid proto_paths.
@@ -104,7 +111,7 @@ function validateWorkspaceProtobufYaml(
 						i,
 						(keyMatch.index ?? 0) + key.length,
 					),
-					message: `Unknown key "${key}". Known keys: proto_path.`,
+					message: `Unknown key "${key}". Known keys: ${[...KNOWN_WORKSPACE_PROTOBUF_KEYS].join(", ")}.`,
 					severity: vscode.DiagnosticSeverity.Warning,
 					source: CONFIG_DIAGNOSTIC_SOURCE,
 				});

@@ -4,6 +4,27 @@ All notable changes to this extension are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`.api-linter.yaml` path scoping now takes effect.** api-linter matches
+  `included_paths` and `excluded_paths` against the file name it is handed, and
+  the extension handed it a bare base name from inside the file's own directory
+  — so `vendor/**` could never match `book.proto` and every path-scoped block
+  was silently inert. Lint runs now happen from the directory that owns the
+  config, with the file named relative to it, which is what makes
+  `disabled_rules: [all]` able to silence one folder.
+- **`included_paths` and `excluded_paths` no longer flagged as unknown keys** by
+  the `.api-linter.yaml` validator.
+
+### Added
+
+- **`exclude` in `workspace.protobuf.yaml`**: globs naming folders and files the
+  linter skips entirely — not parsed, not reported, no process spawned. A bare
+  directory name covers the tree beneath it; `*` and `**` work as usual.
+  Diagnostics already published for a newly excluded file are cleared.
+
 ## [2.0.0]
 
 First release under the name **Protobuf AIP Linter**. The extension was

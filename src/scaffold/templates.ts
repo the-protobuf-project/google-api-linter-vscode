@@ -144,11 +144,19 @@ plugins:
 	files.push({
 		path: ".api-linter.yaml",
 		contents: `# api-linter configuration. The file is a list of rule blocks.
+# Each block's included_paths / excluded_paths decide which protos it governs,
+# relative to this file's directory.
 # https://linter.aip.dev/configuration
 ---
 - included_paths:
     - "**/*.proto"
   disabled_rules: []
+
+# Silence every rule for a vendored or generated tree:
+# - included_paths:
+#     - "vendor/**/*.proto"
+#   disabled_rules:
+#     - all
 `,
 	});
 
@@ -159,6 +167,13 @@ plugins:
 
 # Directories containing .proto files. Defaults to this one.
 # proto_path: .
+
+# Folders and files the linter should skip entirely. A bare directory name
+# covers everything under it; * and ** work as usual.
+# exclude:
+#   - vendor
+#   - third_party
+#   - "**/*.pb.proto"
 `,
 	});
 
