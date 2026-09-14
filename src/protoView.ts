@@ -27,6 +27,9 @@ import {
 import { findProtoFiles, findProtoFilesInFolder } from "./utils/fileUtils";
 import { invalidateProtoImportRootsCache } from "./utils/protoImportRoots";
 
+/** View id, matching `contributes.views` in package.json. */
+export const STRUCTURE_VIEW_ID = "googleApiLinter.views.structure";
+
 /** Milliseconds to coalesce structural refreshes over. */
 const STRUCTURE_REFRESH_DEBOUNCE_MS = 400;
 
@@ -41,8 +44,7 @@ export type ProtoSectionId =
 	| "messages"
 	| "enums"
 	| "annotations"
-	| "files"
-	| "deps";
+	| "files";
 
 /** Sections that enumerate symbols and are therefore subject to the ceiling. */
 const SYMBOL_SECTIONS: ReadonlySet<ProtoSectionId> = new Set<ProtoSectionId>([
@@ -115,7 +117,6 @@ export type ProtoTreeNode =
 			count?: number;
 			icon: string;
 	  }
-	| { kind: "dep"; name: string; commit: string }
 	| { kind: "service"; service: ServiceItem }
 	| { kind: "rpc"; rpc: RpcItem; serviceName: string }
 	| {
@@ -161,6 +162,32 @@ export type ProtoTreeNode =
 	| { kind: "messageEnum"; label: string; uri: vscode.Uri; range: vscode.Range }
 	| { kind: "folder"; name: string; uri: vscode.Uri }
 	| { kind: "action"; command: string; label: string; icon: string };
+
+/**
+ * The indexed symbol a tree node stands for, when it stands for one.
+ *
+ * Section headers, counts and info rows have no symbol; selecting one should
+ * leave the Details panel showing whatever it already had rather than blanking
+ * it, so those return `undefined` and the caller decides.
+ *
+ * @param node - The selected node
+ * @returns Its fully-qualified name, or `undefined`
+ */
+export function fqnOfNode(node: ProtoTreeNode | undefined): string | undefined {
+	if (!node) {
+		return undefined;
+	}
+	if (node.kind === "location") {
+		return node.item.fqn;
+	}
+	if (node.kind === "service") {
+		return node.service.fqn;
+	}
+	if (node.kind === "rpc") {
+		return node.rpc.fqn;
+	}
+	return undefined;
+}
 
 /** A leaf node explaining that a section refused to enumerate. */
 function infoNode(
@@ -231,8 +258,6 @@ export class ProtoTreeDataProvider
 	constructor(
 		private readonly diagnosticCollection: vscode.DiagnosticCollection,
 		private getBinaryVersion: () => Promise<string>,
-		private getGoogleapisCommit: () => Promise<string>,
-		private getProtobufCommit: () => Promise<string>,
 		private readonly resolveTypeToLocation?: (
 			typeName: string,
 			contextUri: vscode.Uri,
@@ -354,18 +379,6 @@ export class ProtoTreeDataProvider
 			item.iconPath = new vscode.ThemeIcon(element.icon);
 			item.tooltip = new vscode.MarkdownString(
 				element.tooltip ?? element.label,
-			);
-			return item;
-		}
-		if (element.kind === "dep") {
-			const item = new vscode.TreeItem(
-				element.name,
-				vscode.TreeItemCollapsibleState.None,
-			);
-			item.description = element.commit.slice(0, 7);
-			item.iconPath = new vscode.ThemeIcon(
-				"circle-filled",
-				new vscode.ThemeColor("terminal.ansiCyan"),
 			);
 			return item;
 		}
@@ -831,16 +844,6 @@ export class ProtoTreeDataProvider
 	}
 
 	private async buildSection(id: ProtoSectionId): Promise<ProtoTreeNode[]> {
-		if (id === "deps") {
-			const [googleapisCommit, protobufCommit] = await Promise.all([
-				this.getGoogleapisCommit(),
-				this.getProtobufCommit(),
-			]);
-			return [
-				{ kind: "dep", name: "googleapis", commit: googleapisCommit },
-				{ kind: "dep", name: "protobuf", commit: protobufCommit },
-			];
-		}
 		if (id === "files") {
 			return await this.buildFilesSection();
 		}
@@ -1140,28 +1143,6 @@ export class ProtoTreeDataProvider
 			return roots;
 		}
 
-		// Top-level button bar (debugger style): Lint, Format, Reload
-		roots.push(
-			{
-				kind: "action",
-				command: "googleApiLinter.lintWorkspace",
-				label: "Lint",
-				icon: "play",
-			},
-			{
-				kind: "action",
-				command: "googleApiLinter.formatAllProtos",
-				label: "Format",
-				icon: "prettier",
-			},
-			{
-				kind: "action",
-				command: "googleApiLinter.restart",
-				label: "Reload",
-				icon: "debug-restart",
-			},
-		);
-
 		const index = this.usableIndex();
 		if (!index) {
 			roots.push(this.noIndexNode());
@@ -1222,13 +1203,6 @@ export class ProtoTreeDataProvider
 
 		roots.push({
 			kind: "section",
-			id: "deps",
-			label: "Deps",
-			count: 2,
-			icon: "package",
-		});
-		roots.push({
-			kind: "section",
 			id: "files",
 			label: "Files",
 			count: index?.stats().fileCount ?? this.sectionCounts.get("files"),
@@ -1268,31 +1242,35 @@ export function registerProtoView(
 	context: vscode.ExtensionContext,
 	diagnosticCollection: vscode.DiagnosticCollection,
 	getBinaryVersion: () => Promise<string>,
-	getGoogleapisCommit: () => Promise<string>,
-	getProtobufCommit: () => Promise<string>,
 	resolveTypeToLocation?: (
 		typeName: string,
 		contextUri: vscode.Uri,
 	) => Promise<vscode.Location | null>,
 	index?: ProtoIndex,
 	fileCeiling: number = DEFAULT_PROTO_VIEW_FILE_CEILING,
+	onSelect?: (fqn: string | undefined) => void,
 ): void {
 	const treeDataProvider = new ProtoTreeDataProvider(
 		diagnosticCollection,
 		getBinaryVersion,
-		getGoogleapisCommit,
-		getProtobufCommit,
 		resolveTypeToLocation,
 		index,
 		fileCeiling,
 	);
 	// createTreeView registers the built-in collapseAll command (workbench.actions.treeView.<id>.collapseAll)
-	context.subscriptions.push(
-		vscode.window.createTreeView("googleApiLinter.views.proto", {
-			treeDataProvider,
-			showCollapseAll: false, // we contribute our own icon button
-		}),
-	);
+	const treeView = vscode.window.createTreeView(STRUCTURE_VIEW_ID, {
+		treeDataProvider,
+		showCollapseAll: false, // we contribute our own icon button
+	});
+	context.subscriptions.push(treeView);
+
+	if (onSelect) {
+		context.subscriptions.push(
+			treeView.onDidChangeSelection((event) => {
+				onSelect(fqnOfNode(event.selection[0]));
+			}),
+		);
+	}
 	// Pushed after the view so the view is torn down before the provider's
 	// emitter and index subscription go away.
 	context.subscriptions.push(treeDataProvider);
@@ -1307,7 +1285,7 @@ export function registerProtoView(
 		vscode.commands.registerCommand("googleApiLinter.collapseAll", async () => {
 			try {
 				await vscode.commands.executeCommand(
-					"workbench.actions.treeView.googleApiLinter.views.proto.collapseAll",
+					`workbench.actions.treeView.${STRUCTURE_VIEW_ID}.collapseAll`,
 				);
 			} catch {
 				// Built-in command only exists when view is created with createTreeView; fallback refresh

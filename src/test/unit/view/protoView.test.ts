@@ -361,8 +361,6 @@ function harness(options: ProviderOptions = {}): Harness {
 	const provider = new ProtoTreeDataProvider(
 		collection as unknown as DiagnosticCollection,
 		options.binaryVersion ?? (() => Promise.resolve("1.2.3")),
-		() => Promise.resolve(options.googleapisCommit ?? "abcdef1234567890"),
-		() => Promise.resolve(options.protobufCommit ?? "0987654321fedcba"),
 		resolve
 			? (typeName: string) => {
 					options.resolved?.push(typeName);
@@ -441,8 +439,6 @@ function labels(nodes: readonly ProtoTreeNode[]): string[] {
 			case "init":
 			case "action":
 				return node.label;
-			case "dep":
-				return node.name;
 			case "file":
 				return node.uri.fsPath;
 			case "diagnostic":
@@ -558,11 +554,10 @@ describe("root", () => {
 		const { provider } = harness({ index });
 		const roots = await provider.getChildren();
 
+		// Lint, Format and Restart used to be three fake rows at the top of this
+		// tree. They are a `view/title` toolbar now, which is where the debugger
+		// has always put them, and dependencies moved to their own view.
 		expect(kinds(roots)).toEqual([
-			"action",
-			"action",
-			"action",
-			"section",
 			"section",
 			"section",
 			"section",
@@ -571,14 +566,12 @@ describe("root", () => {
 			"section",
 			"status",
 		]);
-		expect(labels(roots).slice(0, 3)).toEqual(["Lint", "Format", "Reload"]);
 		expect(sectionIds(roots)).toEqual([
 			"services",
 			"rpcs",
 			"resources",
 			"messages",
 			"enums",
-			"deps",
 			"files",
 		]);
 	});
@@ -610,7 +603,7 @@ describe("root", () => {
 	test("replaces the symbol sections with a notice when there is no index", async () => {
 		const { provider } = harness();
 		const roots = await provider.getChildren();
-		expect(sectionIds(roots)).toEqual(["deps", "files"]);
+		expect(sectionIds(roots)).toEqual(["files"]);
 
 		const info = roots.find((node) => node.kind === "info");
 		expect(info?.kind === "info" && info.label).toBe(
@@ -630,7 +623,7 @@ describe("root", () => {
 		const roots = await provider.getChildren();
 
 		// An onDemand index is treated as no index at all by every symbol section.
-		expect(sectionIds(roots)).toEqual(["deps", "files"]);
+		expect(sectionIds(roots)).toEqual(["files"]);
 		const info = roots.find((node) => node.kind === "info");
 		expect(info?.kind === "info" && info.label).toBe(
 			"Workspace index is running on demand",
@@ -655,7 +648,6 @@ describe("root", () => {
 			"resources",
 			"messages",
 			"enums",
-			"deps",
 			"files",
 		]);
 		const info = roots.find((node) => node.kind === "info");
@@ -706,17 +698,13 @@ describe("root", () => {
 });
 
 describe("getTreeItem", () => {
-	test("renders an action as a clickable leaf", async () => {
+	test("puts no command rows in the tree", async () => {
+		// Lint, Format and Restart are contributed as a `view/title` toolbar in
+		// package.json. A tree that also renders them as rows shows every action
+		// twice and pushes the actual content down.
 		const { provider } = harness();
 		const roots = await provider.getChildren();
-		const item = provider.getTreeItem(roots[0]);
-		expect(item.label).toBe("Lint");
-		expect(item.collapsibleState).toBe(TreeItemCollapsibleState.None);
-		expect(iconId(item)).toBe("play");
-		expect(command(item)).toEqual({
-			command: "googleApiLinter.lintWorkspace",
-			title: "Lint",
-		});
+		expect(roots.some((node) => node.kind === "action")).toBe(false);
 	});
 
 	test("renders a section collapsed, coloured and described", async () => {
@@ -758,20 +746,16 @@ describe("getTreeItem", () => {
 });
 
 describe("deps section", () => {
-	test("lists both dependencies with short commits", async () => {
+	test("is gone — dependencies have their own view now", async () => {
+		// This section reported a hardcoded `count: 2` and listed the two
+		// vendored download commits, while the workspace's real buf
+		// dependencies were parsed by the module graph and discarded.
 		const { provider } = harness({
 			googleapisCommit: "1234567890abcdef",
 			protobufCommit: "fedcba0987654321",
 		});
 		const roots = await provider.getChildren();
-		const deps = await provider.getChildren(section(roots, "deps"));
-
-		expect(labels(deps)).toEqual(["googleapis", "protobuf"]);
-		const item = provider.getTreeItem(deps[0]);
-		expect(item.description).toBe("1234567");
-		expect(item.collapsibleState).toBe(TreeItemCollapsibleState.None);
-		expect(iconId(item)).toBe("circle-filled");
-		expect(iconColor(item)).toBe("terminal.ansiCyan");
+		expect(sectionIds(roots)).not.toContain("deps");
 	});
 });
 
@@ -1848,7 +1832,6 @@ describe("edge cases", () => {
 			"resources",
 			"messages",
 			"enums",
-			"deps",
 			"files",
 		]);
 		expect(roots.some((node) => node.kind === "info")).toBe(false);
@@ -1869,7 +1852,12 @@ describe("edge cases", () => {
 		const roots = await provider.getChildren();
 		const status = roots[roots.length - 1];
 		expect(await provider.getChildren(status)).toEqual([]);
-		expect(await provider.getChildren(roots[0])).toEqual([]);
+		// A field inside a message is a leaf: nothing nests below it.
+		const messages = await provider.getChildren(section(roots, "messages"));
+		const members = await provider.getChildren(messages[0]);
+		const field = members.find((node) => node.kind === "messageField");
+		expect(field).toBeDefined();
+		expect(await provider.getChildren(field as ProtoTreeNode)).toEqual([]);
 	});
 
 	test("walks a deeply nested message without leaking inner members", async () => {
@@ -2085,8 +2073,6 @@ function register(
 		{ subscriptions } as unknown as ExtensionContext,
 		new StubDiagnosticCollection("test") as unknown as DiagnosticCollection,
 		() => Promise.resolve("1.2.3"),
-		() => Promise.resolve("abcdef1"),
-		() => Promise.resolve("1234567"),
 		undefined,
 		index,
 	);
@@ -2120,7 +2106,7 @@ describe("registerProtoView", () => {
 	test("creates the view, its commands and its watchers", () => {
 		const wiring = register();
 
-		expect(wiring.viewId).toBe("googleApiLinter.views.proto");
+		expect(wiring.viewId).toBe("googleApiLinter.views.structure");
 		// The view contributes its own collapse button in package.json.
 		expect(wiring.showCollapseAll).toBe(false);
 		expect([...wiring.handlers.keys()]).toEqual([
@@ -2148,7 +2134,7 @@ describe("registerProtoView", () => {
 		await wiring.handlers.get("googleApiLinter.collapseAll")?.();
 
 		expect(wiring.executed).toEqual([
-			"workbench.actions.treeView.googleApiLinter.views.proto.collapseAll",
+			"workbench.actions.treeView.googleApiLinter.views.structure.collapseAll",
 		]);
 		// Delegation succeeded, so there is nothing for the view to redraw.
 		expect(wiring.fired).toEqual([]);

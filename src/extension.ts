@@ -43,6 +43,7 @@ import {
 	invalidateModuleGraphCache,
 } from "./utils/moduleGraph";
 import { invalidateProtoImportRootsCache } from "./utils/protoImportRoots";
+import { registerViews } from "./views";
 import { ProtoWorkspaceSymbolProvider } from "./workspaceSymbolProvider";
 
 let diagnosticCollection: vscode.DiagnosticCollection;
@@ -156,19 +157,40 @@ export async function activate(context: vscode.ExtensionContext) {
 		context.subscriptions.push(createInitWorkspaceCommand());
 		context.subscriptions.push(registerReportIssueCommand(context));
 
+		// Problems, Details and Dependencies. Registered before the Structure
+		// tree so its selection handler has somewhere to send the selection.
+		const views = registerViews({
+			context,
+			diagnostics: diagnosticCollection,
+			index,
+			log: outputChannel,
+			runtime: {
+				googleapis: () => binaryManager.getGoogleapisCommit(),
+				protobuf: () => binaryManager.getProtobufCommit(),
+			},
+		});
+
 		registerProtoView(
 			context,
 			diagnosticCollection,
 			() => binaryManager.getBinaryVersion(),
-			() => binaryManager.getGoogleapisCommit(),
-			() => binaryManager.getProtobufCommit(),
 			(typeName: string, contextUri: vscode.Uri) =>
 				definitionProvider.resolveTypeToLocation(typeName, contextUri),
 			index,
 			vscode.workspace
 				.getConfiguration("gapi")
 				.get<number>("protoView.maxFiles", 5000),
+			views.showSymbol,
 		);
+
+		// Findings drive three of the four views, so one subscription keeps the
+		// problem tree, the detail payload and the view badges in step.
+		context.subscriptions.push(
+			vscode.languages.onDidChangeDiagnostics(() => {
+				views.refreshProblems();
+			}),
+		);
+		views.refreshProblems();
 
 		// Highlighting, hover, completion and diagnostics for every custom
 		// annotation, derived from the extend blocks the index found.

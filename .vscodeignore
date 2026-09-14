@@ -7,6 +7,13 @@
 out/**
 !out/extension.js
 
+# The two webview panels and their stylesheet. These are loaded at runtime
+# through `asWebviewUri`, so leaving them behind the `out/**` rule above ships
+# an extension whose Details and Registry panels render a blank page.
+!out/webview/details.js
+!out/webview/registry.js
+!out/webview/style.css
+
 # Sources and build tooling.
 src/**
 **/*.ts
