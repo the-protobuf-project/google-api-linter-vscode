@@ -223,15 +223,20 @@
 		"commands": [
 			{
 				"command": "googleApiLinter.lintCurrentFile",
-				"title": "Protobuf AIP Linter: Lint Current File"
+				"title": "Protobuf AIP Linter: Lint Current File",
+				"icon": "$(check)"
 			},
 			{
 				"command": "googleApiLinter.lintWorkspace",
-				"title": "Protobuf AIP Linter: Lint All Proto Files in Workspace"
+				"title": "Lint Workspace",
+				"icon": "$(play)",
+				"category": "Protobuf AIP Linter"
 			},
 			{
 				"command": "googleApiLinter.formatAllProtos",
-				"title": "Protobuf AIP Linter: Format All Proto Files"
+				"title": "Format All Proto Files",
+				"icon": "$(symbol-namespace)",
+				"category": "Protobuf AIP Linter"
 			},
 			{
 				"command": "googleApiLinter.createConfig",
@@ -239,7 +244,8 @@
 			},
 			{
 				"command": "googleApiLinter.restart",
-				"title": "Protobuf AIP Linter: Restart"
+				"title": "Protobuf AIP Linter: Restart",
+				"icon": "$(debug-restart)"
 			},
 			{
 				"command": "googleApiLinter.updateGoogleapisCommit",
@@ -251,7 +257,8 @@
 			},
 			{
 				"command": "googleApiLinter.refreshProtoView",
-				"title": "Protobuf AIP Linter: Refresh Proto View"
+				"title": "Protobuf AIP Linter: Refresh Proto View",
+				"icon": "$(refresh)"
 			},
 			{
 				"command": "googleApiLinter.initWorkspace",
@@ -268,11 +275,13 @@
 			},
 			{
 				"command": "googleApiLinter.lintFileFromTree",
-				"title": "Lint this file"
+				"title": "Lint this file",
+				"icon": "$(play)"
 			},
 			{
 				"command": "googleApiLinter.formatFileFromTree",
-				"title": "Format this file"
+				"title": "Format this file",
+				"icon": "$(symbol-namespace)"
 			},
 			{
 				"command": "googleApiLinter.reportIssue",
@@ -307,7 +316,8 @@
 			{
 				"command": "googleApiLinter.structure.search",
 				"title": "Search Symbols",
-				"icon": "$(search)"
+				"icon": "$(search)",
+				"category": "Protobuf AIP Linter"
 			},
 			{
 				"command": "googleApiLinter.problems.groupByRule",

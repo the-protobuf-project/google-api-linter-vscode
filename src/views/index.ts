@@ -16,10 +16,12 @@ import {
 import type { ProtoIndex } from "../index/types";
 import type { DependencyModel } from "../shared/protocol";
 import { invalidateModuleGraphCache } from "../utils/moduleGraph";
+import { generate, updateDependencies } from "./bufActions";
 import { DEPENDENCIES_VIEW_ID, DependenciesProvider } from "./dependenciesView";
 import { DETAILS_VIEW_ID, DetailsViewProvider } from "./detailsView";
 import { PROBLEMS_VIEW_ID, ProblemsProvider } from "./problemsView";
 import { RegistryPanel } from "./registryPanel";
+import { searchSymbols } from "./symbolSearch";
 
 /** What the views need from the rest of the extension. */
 export interface ViewWiring {
@@ -139,6 +141,56 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 				: undefined;
 	};
 
+	/**
+	 * Runs one `buf` command in a module root, asking which when there are
+	 * several.
+	 *
+	 * A monorepo has many `buf.yaml` files and running against the wrong one
+	 * writes generated code into the wrong tree, so the choice is the user's
+	 * whenever it is ambiguous.
+	 */
+	const runInModule = async (
+		label: string,
+		run: (root: string) => Promise<{ ok: boolean; stderr: string }>,
+	): Promise<void> => {
+		const model = dependencies.current() ?? (await loadModel());
+		const roots = model.modules.map((module) => module.root);
+		if (roots.length === 0) {
+			void vscode.window.showWarningMessage(
+				"No buf module found. `buf.yaml` is what defines one.",
+			);
+			return;
+		}
+		const root =
+			roots.length === 1
+				? roots[0]
+				: await vscode.window.showQuickPick(roots, {
+						title: `Run ${label} in which module?`,
+					});
+		if (!root) {
+			return;
+		}
+		await vscode.window.withProgress(
+			{ location: vscode.ProgressLocation.Notification, title: `${label}…` },
+			async () => {
+				const result = await run(root);
+				if (result.ok) {
+					refreshDependencies();
+					return;
+				}
+				const detail =
+					result.stderr.trim().split("\n")[0] || "see the output channel";
+				const choice = await vscode.window.showErrorMessage(
+					`${label} failed: ${detail}`,
+					"Show Output",
+				);
+				if (choice === "Show Output") {
+					log.show(true);
+				}
+			},
+		);
+	};
+
 	/* ---------------------------------------------------------------- *
 	 * Commands
 	 * ---------------------------------------------------------------- */
@@ -169,6 +221,26 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 			"googleApiLinter.dependencies.refresh",
 			() => {
 				refreshDependencies();
+			},
+		),
+
+		vscode.commands.registerCommand("googleApiLinter.structure.search", () =>
+			searchSymbols(index),
+		),
+
+		vscode.commands.registerCommand(
+			"googleApiLinter.dependencies.update",
+			async () => {
+				await runInModule("buf dep update", (root) =>
+					updateDependencies(root, log),
+				);
+			},
+		),
+
+		vscode.commands.registerCommand(
+			"googleApiLinter.dependencies.generate",
+			async () => {
+				await runInModule("buf generate", (root) => generate(root, log));
 			},
 		),
 
