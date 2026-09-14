@@ -1150,23 +1150,44 @@ describe("annotation collection", () => {
 		const item = annotationLocationItem(index, descriptors[2]);
 		expect(item?.label).toBe("cache");
 		expect(item?.detail).toBe("Message · CacheOptions");
-		expect(item?.documentation).toBe(
-			"Caches a resource.\n\noption (cache.v1.cache) = {};",
-		);
+		// The tooltip has to carry more than prose: the import is the step that
+		// makes the option resolve at all, and it was invisible before.
+		expect(item?.documentation).toContain("Caches a resource.");
+		expect(item?.documentation).toContain("**Import**");
+		expect(item?.documentation).toContain('import "x/v1/annotations.proto";');
+		expect(item?.documentation).toContain("**Usage**");
+		expect(item?.documentation).toContain("option (cache.v1.cache) = {};");
 		expect(item?.namespace).toBe("cache.v1");
 		expect(item?.fqn).toBe("cache.v1.cache");
 		expect(item?.range.start.line).toBe(9);
 		expect(item?.range.start.character).toBe(0);
 	});
 
-	test("falls back to the fqn when an example has no prose beside it", () => {
+	test("prefers a written example over a synthesised one", () => {
 		const item = annotationLocationItem(
 			index,
 			annotation("x.v1.thing", "File", {
 				example: "option (x.v1.thing) = {};",
 			}),
 		);
-		expect(item?.documentation).toBe("x.v1.thing\n\noption (x.v1.thing) = {};");
+		expect(item?.documentation).toContain("option (x.v1.thing) = {};");
+		expect(item?.documentation).not.toContain("at file scope");
+	});
+
+	test("synthesises usage from the target when nothing is written", () => {
+		// Where an option goes is decided by what it extends, and that
+		// placement is the part people get wrong.
+		const method = annotationLocationItem(
+			index,
+			annotation("x.v1.thing", "Method"),
+		);
+		expect(method?.documentation).toContain("rpc Example(Request)");
+
+		const field = annotationLocationItem(
+			index,
+			annotation("x.v1.thing", "Field"),
+		);
+		expect(field?.documentation).toContain("[(x.v1.thing) = { … }]");
 	});
 
 	test("picks an icon from the target, never from the name", () => {

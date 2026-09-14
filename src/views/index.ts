@@ -15,6 +15,7 @@ import {
 	invalidateDepCaches,
 } from "../deps";
 import type { ProtoIndex } from "../index/types";
+import { annotationUsage } from "../protoScanner";
 import type { DependencyModel } from "../shared/protocol";
 import { invalidateModuleGraphCache } from "../utils/moduleGraph";
 import { buildApiReport } from "./apiReport";
@@ -274,6 +275,21 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 		terminal.sendText(`${bufPath()} registry login ${host}`);
 	};
 
+	/**
+	 * The annotation a tree node stands for.
+	 *
+	 * The node carries only the option's fully-qualified name; the registry
+	 * holds everything worth acting on, so the lookup happens here rather than
+	 * widening what the tree has to remember.
+	 */
+	const annotationOf = (node?: { item?: { fqn?: string } }) => {
+		const fqn = node?.item?.fqn;
+		if (!fqn || !index) {
+			return undefined;
+		}
+		return index.annotations().get(fqn);
+	};
+
 	/* ---------------------------------------------------------------- *
 	 * Commands
 	 * ---------------------------------------------------------------- */
@@ -368,6 +384,40 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 
 		vscode.commands.registerCommand("googleApiLinter.captureErrors", () =>
 			captureErrors(diagnostics),
+		),
+
+		vscode.commands.registerCommand(
+			"googleApiLinter.copyAnnotationImport",
+			async (node?: { item?: { fqn?: string } }) => {
+				const descriptor = annotationOf(node);
+				if (!descriptor) {
+					return;
+				}
+				const line = `import "${descriptor.importPath}";`;
+				await vscode.env.clipboard.writeText(line);
+				void vscode.window.showInformationMessage(`Copied \`${line}\``);
+			},
+		),
+
+		vscode.commands.registerCommand(
+			"googleApiLinter.insertAnnotation",
+			async (node?: { item?: { fqn?: string } }) => {
+				const descriptor = annotationOf(node);
+				if (!descriptor) {
+					return;
+				}
+				const editor = vscode.window.activeTextEditor;
+				const snippet = descriptor.example ?? annotationUsage(descriptor);
+				if (!editor) {
+					// Nowhere to insert, so hand it over rather than doing nothing.
+					await vscode.env.clipboard.writeText(snippet);
+					void vscode.window.showInformationMessage(
+						"No open editor — usage copied to the clipboard.",
+					);
+					return;
+				}
+				await editor.insertSnippet(new vscode.SnippetString(snippet));
+			},
 		),
 
 		vscode.commands.registerCommand(

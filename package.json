@@ -378,6 +378,18 @@
 				"title": "Capture All Errors",
 				"category": "Protobuf AIP Linter",
 				"icon": "$(device-camera)"
+			},
+			{
+				"command": "googleApiLinter.copyAnnotationImport",
+				"title": "Copy Import Statement",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(clippy)"
+			},
+			{
+				"command": "googleApiLinter.insertAnnotation",
+				"title": "Insert Usage at Cursor",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(insert)"
 			}
 		],
 		"menus": {
@@ -499,6 +511,21 @@
 					"command": "googleApiLinter.removeRegistry",
 					"when": "view == googleApiLinter.views.registries && viewItem == registry:custom",
 					"group": "1_modify"
+				},
+				{
+					"command": "googleApiLinter.insertAnnotation",
+					"when": "view == googleApiLinter.views.structure && viewItem == annotation",
+					"group": "inline"
+				},
+				{
+					"command": "googleApiLinter.copyAnnotationImport",
+					"when": "view == googleApiLinter.views.structure && viewItem == annotation",
+					"group": "1_annotation@1"
+				},
+				{
+					"command": "googleApiLinter.insertAnnotation",
+					"when": "view == googleApiLinter.views.structure && viewItem == annotation",
+					"group": "1_annotation@2"
 				}
 			]
 		},

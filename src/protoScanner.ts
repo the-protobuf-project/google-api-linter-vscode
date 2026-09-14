@@ -541,6 +541,38 @@ export function collectAnnotationsIn(
 }
 
 /** Turns an annotation descriptor into a revealable location item. */
+/**
+ * Where an option of this target is written, as a snippet a reader can copy.
+ *
+ * The tree could already say what an annotation *is*; it could not say how to
+ * apply one. Target is what decides that — a `Method` option goes inside an
+ * rpc body, a `Field` option inside the field's square brackets — and that
+ * placement is the part people get wrong.
+ *
+ * @param descriptor - The annotation to demonstrate
+ * @returns A one-line usage example
+ */
+export function annotationUsage(descriptor: AnnotationDescriptor): string {
+	const call = `(${descriptor.fqn})`;
+	switch (descriptor.target) {
+		case "Field":
+		case "EnumValue":
+			return `string example = 1 [${call} = { … }];`;
+		case "File":
+			return `option ${call} = { … };  // at file scope`;
+		case "Method":
+			return `rpc Example(Request) returns (Response) {\n  option ${call} = { … };\n}`;
+		case "Service":
+			return `service Example {\n  option ${call} = { … };\n}`;
+		case "Message":
+			return `message Example {\n  option ${call} = { … };\n}`;
+		case "Enum":
+			return `enum Example {\n  option ${call} = { … };\n}`;
+		default:
+			return `option ${call} = { … };`;
+	}
+}
+
 export function annotationLocationItem(
 	index: ProtoIndex,
 	descriptor: AnnotationDescriptor,
@@ -549,9 +581,23 @@ export function annotationLocationItem(
 	if (!uri) {
 		return undefined;
 	}
-	const documentation = descriptor.example
-		? `${descriptor.doc ?? descriptor.fqn}\n\n${descriptor.example}`
-		: descriptor.doc;
+	// Everything a reader needs to actually use this: what it is, the import it
+	// requires, and where the option is written. The import in particular was
+	// invisible, and it is the step that makes the option resolve at all.
+	const parts: string[] = [];
+	if (descriptor.doc) {
+		parts.push(descriptor.doc);
+	}
+	parts.push(
+		`\`${descriptor.fqn}\` · extends \`${descriptor.target}Options\` · field ${descriptor.number}`,
+	);
+	parts.push(
+		`**Import**\n\n\`\`\`proto\nimport "${descriptor.importPath}";\n\`\`\``,
+	);
+	parts.push(
+		`**Usage**\n\n\`\`\`proto\n${descriptor.example ?? annotationUsage(descriptor)}\n\`\`\``,
+	);
+	const documentation = parts.join("\n\n");
 	return {
 		label: descriptor.name,
 		detail: `${descriptor.target} · ${descriptor.type}`,

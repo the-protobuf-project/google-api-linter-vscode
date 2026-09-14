@@ -720,6 +720,11 @@ export class ProtoTreeDataProvider
 				title: "Go to",
 				arguments: [loc.uri, loc.range],
 			};
+			// Annotations carry a namespace; nothing else in this tree does, and
+			// only they have an import and a usage worth acting on.
+			if (loc.namespace) {
+				treeItem.contextValue = "annotation";
+			}
 			if (loc.documentation || loc.detail) {
 				treeItem.tooltip = new vscode.MarkdownString(
 					(loc.documentation
