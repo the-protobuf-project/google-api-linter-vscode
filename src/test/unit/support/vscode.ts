@@ -134,12 +134,38 @@ export class Uri {
 	private constructor(
 		readonly fsPath: string,
 		readonly scheme = "file",
+		readonly authority = "",
+		readonly query = "",
+		readonly fragment = "",
 	) {}
 	static file(fsPath: string): Uri {
 		return new Uri(fsPath);
 	}
 	static parse(value: string): Uri {
 		return new Uri(value.replace(/^file:\/\//, ""));
+	}
+	/**
+	 * Mirrors `vscode.Uri.from`.
+	 *
+	 * The components are stored exactly as given. That is the real behaviour
+	 * and the reason this method exists: `toString()` is what percent-encodes
+	 * them, so a caller that encodes beforehand gets it done twice — which is
+	 * what turned every `###` in the issue template into `%23%23%23`.
+	 */
+	static from(parts: {
+		scheme: string;
+		authority?: string;
+		path?: string;
+		query?: string;
+		fragment?: string;
+	}): Uri {
+		return new Uri(
+			parts.path ?? "",
+			parts.scheme,
+			parts.authority ?? "",
+			parts.query ?? "",
+			parts.fragment ?? "",
+		);
 	}
 	/** Joins path segments onto a uri, as `vscode.Uri.joinPath` does. */
 	static joinPath(base: Uri, ...segments: string[]): Uri {
@@ -149,15 +175,19 @@ export class Uri {
 		return this.fsPath;
 	}
 	toString(): string {
-		return `${this.scheme}://${this.fsPath}`;
+		const base = `${this.scheme}://${this.authority}${this.fsPath}`;
+		// Encoding here, once, is what the real `toString` does.
+		return this.query ? `${base}?${encodeURI(this.query)}` : base;
 	}
-	/** Always empty: the extension only ever constructs file uris. */
-	readonly authority = "";
-	readonly query = "";
-	readonly fragment = "";
 	/** Mirrors `vscode.Uri.with`; the callers only ever change scheme or path. */
-	with(change: { scheme?: string; path?: string }): Uri {
-		return new Uri(change.path ?? this.fsPath, change.scheme ?? this.scheme);
+	with(change: { scheme?: string; path?: string; query?: string }): Uri {
+		return new Uri(
+			change.path ?? this.fsPath,
+			change.scheme ?? this.scheme,
+			this.authority,
+			change.query ?? this.query,
+			this.fragment,
+		);
 	}
 	toJSON(): object {
 		return { scheme: this.scheme, path: this.fsPath };

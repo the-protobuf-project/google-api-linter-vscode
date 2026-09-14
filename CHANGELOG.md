@@ -78,6 +78,9 @@ All notable changes to this extension are documented here. The format follows
 - `buf.gen.yaml` is found anywhere in the workspace, not only beside a
   `buf.yaml`.
 - Line endings are normalised, so Windows agrees with the other platforms.
+- Report Issue no longer arrives percent-encoded. The query was encoded once
+  when it was built and again when the link was opened, so every `###` in the
+  template reached GitHub as a literal `%23%23%23`.
 
 ### Security
 
