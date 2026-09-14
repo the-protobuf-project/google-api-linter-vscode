@@ -2,7 +2,7 @@
 	"name": "protobuf-aip-linter",
 	"displayName": "Protobuf AIP Linter",
 	"description": "Protobuf AIP Linter for VS Code - Production Grade API Design",
-	"version": "2.0.0",
+	"version": "2.1.0",
 	"publisher": "the-protobuf-project",
 	"license": "Apache-2.0",
 	"icon": "picon.png",
@@ -453,12 +453,12 @@
 				{
 					"command": "googleApiLinter.reportIssue",
 					"when": "view == googleApiLinter.views.structure",
-					"group": "1_more@1"
+					"group": "1_more@3"
 				},
 				{
 					"command": "googleApiLinter.generateApiReport",
 					"when": "view == googleApiLinter.views.structure",
-					"group": "navigation@5"
+					"group": "1_more@1"
 				},
 				{
 					"command": "googleApiLinter.addRegistry",
@@ -468,7 +468,7 @@
 				{
 					"command": "googleApiLinter.openDetailsToSide",
 					"when": "view == googleApiLinter.views.structure",
-					"group": "navigation@6"
+					"group": "1_more@2"
 				},
 				{
 					"command": "googleApiLinter.captureErrors",

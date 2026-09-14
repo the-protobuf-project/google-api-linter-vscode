@@ -27,6 +27,7 @@ typedoc.json
 **/.eslintrc.json
 
 # Dev-only trees.
+.claude/**
 .vscode/**
 .vscode-test/**
 smoke_test/**

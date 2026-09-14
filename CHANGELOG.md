@@ -4,6 +4,63 @@ All notable changes to this extension are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0]
+
+### Added
+
+- **Proto Registry** — a searchable browser for Buf Schema Registry modules, in
+  an editor tab rather than the sidebar, with the `buf.yaml` edit shown before
+  it is made. `buf dep` has no `add` subcommand, so adding a dependency edits
+  the file and then runs `buf dep update`.
+- **Registries view** with support for self-hosted registries via
+  `gapi.registries`, and sign-in through `buf registry login <host>`.
+- **Dependencies view** reading `buf.yaml`, `buf.lock` and `buf.gen.yaml`,
+  replacing a section that reported a hardcoded count of two. Each codegen
+  plugin can be run on its own.
+- **Details panel**, in the sidebar and as an editor tab, showing a symbol's
+  fields, annotations and the rules that fired on it — including option keys
+  that are *absent*, which is what the rule is usually complaining about.
+- **Problems view** grouped by rule, answering "which rule is firing 34 times"
+  rather than "what is wrong with this file".
+- **Generate API Report** — whole-workspace Markdown with per-service Mermaid
+  diagrams, shared-type analysis and findings by rule.
+- **Capture All Errors** — findings as a shareable Markdown report with the
+  offending source lines quoted.
+- **Symbol search** over the workspace index.
+- `gapi.lintOnStartup` (default true): lint the workspace when it opens.
+
+### Fixed
+
+- An HTTP path template no longer swallows the rest of a file. A wildcard
+  segment inside a quoted string read as a block-comment opener, so everything
+  after the first `google.api.http` annotation vanished from the index — a
+  service with five RPCs reported one.
+- Annotations are scanned from `~/.gapi` as well as the buf cache. Workspaces
+  not using buf found no `extend` blocks at all, so the Annotations section
+  never appeared.
+- Section counts are known before a section is expanded, rather than learned by
+  expanding it.
+- Toolbar buttons appear: a `view/title` command renders as a button only when
+  it carries an icon, and Lint and Format had none.
+- Resources and messages no longer share an icon and colour.
+- `buf.gen.yaml` is found anywhere in the workspace, not only beside a
+  `buf.yaml`.
+- Line endings are normalised, so Windows agrees with the other platforms.
+
+### Security
+
+- Hovers, completion docs and tooltips no longer render as trusted Markdown.
+  They are built from doc comments in workspace protos and from guidance
+  fetched over the network, so a `command:` link written into either became a
+  live command one click away. No link the extension emits needed trust.
+
+### Changed
+
+- The container is **The Protobuf Project**, and the single tree is now four
+  views: Structure, Problems, Dependencies and Registries.
+- Structure no longer lists files or the linter version. The Explorer already
+  lists files, and the version is in the status bar.
+
 ## [2.0.0]
 
 First release under the name **Protobuf AIP Linter**. The extension was

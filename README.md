@@ -6,7 +6,12 @@
 - **Real-time Linting**: Automatically validates `.proto` files as you type or save
 - **Inline Diagnostics**: Displays linting errors and warnings directly in the editor
 - **Hover Documentation**: Shows detailed rule information when hovering over diagnostics
-- **Proto View (Activity Bar)**: Debugger-style sidebar with **Lint**, **Format**, **Reload**; **Report Issue** (GitHub icon) opens a pre-filled bug issue on GitHub; **Services** (expand to RPCs, then Request/Response—click to go to type in file); **Resources**; **Messages** (expand for fields and enums); **Enums**; **Annotations** (grouped by namespace, discovered from the workspace); **Deps** (googleapis, protobuf); **Files** with pastel status (cyan=OK, magenta=warning, blue=error). **Collapse All** in the title bar. Click any item to jump to that symbol or type in the file. Right‑click a file to **Lint** or **Format** that file.
+- **The Protobuf Project (Activity Bar)**: four views rather than one tree.
+  **Structure** lists Services (expand to RPCs, then Request/Response), Resources, Messages, Enums and Annotations, each row carrying its own finding counts; its toolbar has **Lint**, **Format**, **Search** and **Collapse All**, with Report Issue, API Report and Details-to-side in the overflow menu. **Problems** groups findings by rule, so a rule firing 34 times reads as one row. **Dependencies** reads `buf.yaml`, `buf.lock` and `buf.gen.yaml`, and every codegen plugin can be run on its own. **Registries** lists the schema registries you browse. Click any symbol to jump to it; right-click a file to Lint or Format it
+- **Details**: a symbol's fields, annotations and the rules that fired on it, in the sidebar or as an editor tab beside your code. Option keys that are *absent* are shown too, since that is usually what the rule is complaining about
+- **Proto Registry**: a searchable browser for Buf Schema Registry modules, opened as an editor tab. Self-hosted registries are supported through `gapi.registries`. Adding a dependency shows the exact `buf.yaml` edit before making it
+- **Generate API Report**: whole-workspace Markdown with per-service Mermaid diagrams, shared-type analysis and findings by rule — for a pull request or a review
+- **Capture All Errors**: every finding as a shareable Markdown report with the offending source lines quoted
 - **Status Bar**: Shows "Proto" or "Proto: X error(s), Y warning(s)"; click to open the Proto view
 - **Config File Validation**: Warnings for unknown keys and invalid paths in `.api-linter.yaml` and `workspace.protobuf.yaml`
 
@@ -172,10 +177,12 @@ Configure the extension through VS Code settings (File > Preferences > Settings 
 | `gapi.formatOnSave` | boolean | `true` | Format proto files when you save |
 | `gapi.formatter` | string | `"buf"` | Formatter: `buf`, `clang-format`, or `simple` (built-in indent) |
 | `gapi.clangFormatPath` | string | `"clang-format"` | Path to clang-format when using `gapi.formatter: "clang-format"` |
+| `gapi.lintOnStartup` | boolean | `true` | Lint the whole workspace once when it opens, so problems are listed before you touch a file |
 | `gapi.enableOnSave` | boolean | `true` | Run linter when saving proto files |
 | `gapi.enableOnType` | boolean | `false` | Run linter while typing (may impact performance) |
 | `gapi.configPath` | string | `""` | Path to `.api-linter.yaml` configuration file |
 | `gapi.protoPath` | array | `[]` | Additional proto import paths |
+| `gapi.registries` | array | `[]` | Extra Buf Schema Registry hosts to browse, e.g. `["buf.example.com"]`. `buf.build` is always available |
 | `gapi.disableRules` | array | `[]` | Rules to disable (e.g., `["core::0192::has-comments"]`) |
 | `gapi.enableRules` | array | `[]` | Rules to explicitly enable |
 | `gapi.descriptorSetIn` | array | `[]` | FileDescriptorSet files for imports |
