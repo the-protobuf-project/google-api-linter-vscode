@@ -97,9 +97,29 @@ export class SymbolStore {
 	private readonly freeList: number[] = [];
 	private liveCount = 0;
 
+	/**
+	 * Live rows per kind, maintained on every add and free.
+	 *
+	 * A tally rather than a scan because the Proto view labels each of its
+	 * sections with a count before anything is expanded. Deriving those by
+	 * walking `kind` would turn drawing the tree's root into a pass over every
+	 * symbol in the workspace — the exact cost the view was rewritten to avoid.
+	 */
+	private readonly kindCounts = new Int32Array(SYMBOL_KINDS.length);
+
 	/** Number of rows in use. */
 	get count(): number {
 		return this.liveCount;
+	}
+
+	/**
+	 * Live rows of one kind.
+	 *
+	 * @param kind - Numeric kind, from {@link kindId}
+	 * @returns How many live symbols carry it
+	 */
+	countOfKind(kind: number): number {
+		return this.kindCounts[kind] ?? 0;
 	}
 
 	/** Highest row index ever allocated, for whole-store scans. */
@@ -133,6 +153,7 @@ export class SymbolStore {
 		this.doc[i] = row.docId;
 		this.alive[i] = 1;
 		this.liveCount++;
+		this.kindCounts[row.kind] = (this.kindCounts[row.kind] ?? 0) + 1;
 		return i;
 	}
 
@@ -148,6 +169,8 @@ export class SymbolStore {
 		this.doc[i] = -1;
 		this.freeList.push(i);
 		this.liveCount--;
+		const kind = this.kind[i];
+		this.kindCounts[kind] = Math.max(0, (this.kindCounts[kind] ?? 0) - 1);
 	}
 
 	/** Drops every row. */
@@ -156,6 +179,7 @@ export class SymbolStore {
 		this.length = 0;
 		this.liveCount = 0;
 		this.freeList.length = 0;
+		this.kindCounts.fill(0);
 		this.name = new Int32Array(INITIAL_CAPACITY);
 		this.kind = new Uint8Array(INITIAL_CAPACITY);
 		this.file = new Int32Array(INITIAL_CAPACITY);

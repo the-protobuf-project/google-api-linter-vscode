@@ -265,6 +265,24 @@ class FakeIndex implements ProtoIndex {
 		this.reads.symbolsInFile++;
 		return this.symbolsById.get(fileId) ?? [];
 	}
+
+	/**
+	 * Deliberately does not record a read: the real index answers this from a
+	 * tally kept during ingest, so a caller asking for it has not walked
+	 * anything. Counting it here would break the assertions that the view's
+	 * root costs no traversal.
+	 */
+	countOfKind(kind: SymbolKind): number {
+		let total = 0;
+		for (const symbols of this.symbolsById.values()) {
+			for (const symbol of symbols) {
+				if (symbol.kind === kind) {
+					total++;
+				}
+			}
+		}
+		return total;
+	}
 	referencesTo(): readonly IndexedReference[] {
 		return [];
 	}
@@ -689,21 +707,23 @@ describe("getTreeItem", () => {
 		expect(tooltip(services)).toBe(
 			"Services with RPCs (expand to see Request/Response)",
 		);
-		// Not expanded yet, so there is no count to show.
-		expect(services.description).toBeUndefined();
+		// The count is known before expanding: the index tallies symbols per
+		// kind as it ingests, so the root does not have to walk anything to
+		// label its sections.
+		expect(services.description).toBe("1");
 
 		const enums = provider.getTreeItem(section(roots, "enums"));
 		expect(iconColor(enums)).toBe("symbolIcon.enumForeground");
 		expect(tooltip(enums)).toBe("Enum definitions");
 	});
 
-	test("badges a section with the count learned by expanding it", async () => {
+	test("badges a section before it has ever been expanded", async () => {
 		const index = new FakeIndex(smallWorkspace());
 		const { provider } = harness({ index });
 		const before = await provider.getChildren();
-		expect(
-			provider.getTreeItem(section(before, "messages")).description,
-		).toBeUndefined();
+		expect(provider.getTreeItem(section(before, "messages")).description).toBe(
+			"3",
+		);
 
 		await provider.getChildren(section(before, "messages"));
 
@@ -1469,7 +1489,7 @@ describe("resources section", () => {
 		const item = provider.getTreeItem(resources[0]);
 		expect(item.description).toBe("google.api.resource");
 		expect(item.collapsibleState).toBe(TreeItemCollapsibleState.Collapsed);
-		expect(iconId(item)).toBe("symbol-class");
+		expect(iconId(item)).toBe("symbol-struct");
 	});
 
 	test("says the scan stopped rather than implying the list is complete", async () => {
@@ -1524,10 +1544,11 @@ describe("refresh", () => {
 		provider.refreshStructure();
 		expect(fired).toEqual([undefined]);
 
-		// The badge learned by expanding is gone, so VS Code re-derives it.
+		// The derived children are gone, but the badge survives: it comes from
+		// the index's tally rather than from having expanded the section.
 		const after = await provider.getChildren();
 		const messages = section(after, "messages");
-		expect(messages.kind === "section" && messages.count).toBeUndefined();
+		expect(messages.kind === "section" && messages.count).toBe(3);
 	});
 
 	test("serves an expanded section from cache until something changes", async () => {
@@ -1743,11 +1764,13 @@ describe("edge cases", () => {
 		);
 		expect(item.description).toBe(`capped at ${MAX_SECTION_SYMBOLS}`);
 
-		// The badge counts real entries only, so the notice never inflates it.
+		// The badge reports what the workspace has, not what the list shows:
+		// "20001" beside a section that displays 20000 rows is the honest
+		// pairing, and the notice explains the difference.
 		const after = await provider.getChildren();
 		const messages = section(after, "messages");
 		expect(messages.kind === "section" && messages.count).toBe(
-			nodes.length - 1,
+			MAX_SECTION_SYMBOLS + 1,
 		);
 	});
 

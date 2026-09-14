@@ -639,11 +639,15 @@ export async function collectResources(
 				}
 				const found: LocationItem[] = [];
 				for (const owner of owners) {
+					// A resource is a message, but it is not *just* a message:
+					// it is the entity an API is organised around. Sharing the
+					// message glyph made the two sections indistinguishable at a
+					// glance, which is the one thing an icon is for.
 					const item = toLocationItem(
 						index,
 						owner,
 						"google.api.resource",
-						"symbol-class",
+						"symbol-struct",
 						true,
 					);
 					if (item) {

@@ -537,7 +537,7 @@ export class ProtoTreeDataProvider
 			item.description = count === undefined ? undefined : `${count}`;
 			const sectionColors: Record<string, string> = {
 				services: "symbolIcon.interfaceForeground",
-				resources: "symbolIcon.classForeground",
+				resources: "symbolIcon.structForeground",
 				annotations: "symbolIcon.keywordForeground",
 				messages: "symbolIcon.classForeground",
 				enums: "symbolIcon.enumForeground",
@@ -552,7 +552,7 @@ export class ProtoTreeDataProvider
 			);
 			const sectionDescriptions: Record<string, string> = {
 				services: "Services with RPCs (expand to see Request/Response)",
-				resources: "Messages with google.api.resource",
+				resources: "Messages carrying a google.api.resource option",
 				annotations:
 					"Custom options, grouped by namespace — derived from their extend blocks",
 				files: "Proto files (cyan=OK, magenta=warning, blue=error)",
@@ -1187,14 +1187,14 @@ export class ProtoTreeDataProvider
 					kind: "section",
 					id: "services",
 					label: "Services",
-					count: this.sectionCounts.get("services"),
+					count: index.countOfKind("service"),
 					icon: "symbol-interface",
 				},
 				{
 					kind: "section",
 					id: "rpcs",
 					label: "RPCs",
-					count: this.sectionCounts.get("rpcs"),
+					count: index.countOfKind("rpc"),
 					icon: "symbol-method",
 				},
 				{
@@ -1202,20 +1202,20 @@ export class ProtoTreeDataProvider
 					id: "resources",
 					label: "Resources",
 					count: this.sectionCounts.get("resources"),
-					icon: "symbol-class",
+					icon: "symbol-struct",
 				},
 				{
 					kind: "section",
 					id: "messages",
 					label: "Messages",
-					count: this.sectionCounts.get("messages"),
+					count: index.countOfKind("message"),
 					icon: "symbol-class",
 				},
 				{
 					kind: "section",
 					id: "enums",
 					label: "Enums",
-					count: this.sectionCounts.get("enums"),
+					count: index.countOfKind("enum"),
 					icon: "symbol-enum",
 				},
 			);

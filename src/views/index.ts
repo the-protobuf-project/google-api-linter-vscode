@@ -19,6 +19,7 @@ import type { DependencyModel } from "../shared/protocol";
 import { invalidateModuleGraphCache } from "../utils/moduleGraph";
 import { buildApiReport } from "./apiReport";
 import { generate, generatePlugin, updateDependencies } from "./bufActions";
+import { captureErrors } from "./captureErrors";
 import {
 	DEPENDENCIES_VIEW_ID,
 	DependenciesProvider,
@@ -330,6 +331,10 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 
 		vscode.commands.registerCommand("googleApiLinter.structure.search", () =>
 			searchSymbols(index),
+		),
+
+		vscode.commands.registerCommand("googleApiLinter.captureErrors", () =>
+			captureErrors(diagnostics),
 		),
 
 		vscode.commands.registerCommand(

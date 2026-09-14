@@ -197,7 +197,7 @@
 			"activitybar": [
 				{
 					"id": "protobuf-aip-linter",
-					"title": "Protobuf Tooling",
+					"title": "The Protobuf Project",
 					"icon": "picon.png"
 				}
 			]
@@ -372,6 +372,12 @@
 				"title": "Sign in to Registry",
 				"category": "Protobuf AIP Linter",
 				"icon": "$(key)"
+			},
+			{
+				"command": "googleApiLinter.captureErrors",
+				"title": "Capture All Errors",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(device-camera)"
 			}
 		],
 		"menus": {
@@ -446,6 +452,16 @@
 					"command": "googleApiLinter.openDetailsToSide",
 					"when": "view == googleApiLinter.views.structure",
 					"group": "navigation@6"
+				},
+				{
+					"command": "googleApiLinter.captureErrors",
+					"when": "view == googleApiLinter.views.problems",
+					"group": "navigation@2"
+				},
+				{
+					"command": "googleApiLinter.reportIssue",
+					"when": "view == googleApiLinter.views.problems",
+					"group": "navigation@3"
 				}
 			],
 			"view/item/context": [

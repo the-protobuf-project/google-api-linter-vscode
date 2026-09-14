@@ -490,6 +490,23 @@ export const window = {
 	): { dispose(): void } => ({ dispose() {} }),
 };
 
+/**
+ * Mirrors `vscode.version`.
+ *
+ * Anything that reports an environment — a bug-report capture, a diagnostic
+ * dump — reads this, and its absence made every such test fail on a property
+ * access rather than on anything it meant to assert.
+ */
+export const version = "1.137.0-test";
+
+/** Mirrors `vscode.extensions`. Nothing is installed in a unit test. */
+export const extensions = {
+	getExtension(_id: string): undefined {
+		return undefined;
+	},
+	all: [] as unknown[],
+};
+
 export const languages = {
 	registerCompletionItemProvider: () => ({ dispose() {} }),
 	registerHoverProvider: () => ({ dispose() {} }),

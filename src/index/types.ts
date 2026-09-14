@@ -235,6 +235,14 @@ export interface ProtoIndex {
 	/** Declarations in one file. */
 	symbolsInFile(fileId: number): readonly IndexedSymbol[];
 	/**
+	 * How many symbols of one kind the workspace declares.
+	 *
+	 * O(1): the store tallies this as it ingests. The Proto view labels every
+	 * section with a count before anything is expanded, and deriving those by
+	 * walking would make drawing the root cost a pass over the whole index.
+	 */
+	countOfKind(kind: SymbolKind): number;
+	/**
 	 * Uses of a fully-qualified type. Only references that resolve to this exact
 	 * fqn — never simple-name matches across packages.
 	 */

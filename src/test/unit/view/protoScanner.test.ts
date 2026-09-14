@@ -229,6 +229,24 @@ class FakeIndex implements ProtoIndex {
 		this.reads.symbolsInFile++;
 		return this.symbolsById.get(fileId) ?? [];
 	}
+
+	/**
+	 * Deliberately does not record a read: the real index answers this from a
+	 * tally kept during ingest, so a caller asking for it has not walked
+	 * anything. Counting it here would break the assertions that the view's
+	 * root costs no traversal.
+	 */
+	countOfKind(kind: SymbolKind): number {
+		let total = 0;
+		for (const symbols of this.symbolsById.values()) {
+			for (const symbol of symbols) {
+				if (symbol.kind === kind) {
+					total++;
+				}
+			}
+		}
+		return total;
+	}
 	referencesTo(): readonly IndexedReference[] {
 		return [];
 	}
@@ -1236,7 +1254,9 @@ message Book {
 		const collected = await collectResources(index);
 		expect(collected.items.map((item) => item.label)).toEqual(["Book"]);
 		expect(collected.items[0].detail).toBe("google.api.resource");
-		expect(collected.items[0].icon).toBe("symbol-class");
+		// A resource carries its own glyph so it cannot be mistaken for a
+		// plain message in the tree.
+		expect(collected.items[0].icon).toBe("symbol-struct");
 		expect(collected.items[0].expandable).toBe(true);
 		expect(collected.truncated).toBe(false);
 	});

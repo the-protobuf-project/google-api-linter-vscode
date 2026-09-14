@@ -58,6 +58,7 @@ import type {
 	IndexStats,
 	IndexTier,
 	ProtoIndex,
+	SymbolKind,
 } from "./types";
 import { importPathFor, walkProtoFiles } from "./walk";
 
@@ -352,6 +353,11 @@ export class ProtoIndexImpl implements ProtoIndex {
 			approxHeapMB: this.approxHeapMB,
 			degradeReason: this.degradeReason,
 		};
+	}
+
+	/** @returns Live symbols of one kind. O(1); see the interface. */
+	countOfKind(kind: SymbolKind): number {
+		return this.syms.countOfKind(kindId(kind));
 	}
 
 	/** @returns Every file in the index. Cached until the next change. */
