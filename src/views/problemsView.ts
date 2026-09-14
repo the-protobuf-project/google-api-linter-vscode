@@ -98,6 +98,13 @@ export class ProblemsProvider
 
 	/** Redraw from the current diagnostics. */
 	refresh(): void {
+		// The welcome view is chosen by VS Code before `getChildren` runs, so
+		// the context key has to be current by the time the tree redraws.
+		void vscode.commands.executeCommand(
+			"setContext",
+			"googleApiLinter.hasProblems",
+			this.collect().length > 0,
+		);
 		this.emitter.fire(undefined);
 	}
 
@@ -180,17 +187,12 @@ export class ProblemsProvider
 
 	getChildren(node?: ProblemNode): ProblemNode[] {
 		const all = this.collect();
+		// Empty means empty. A tree cannot centre a row, so the "no problems"
+		// state is a `viewsWelcome` contribution instead, which VS Code centres
+		// and styles for us — and it only renders when the view has no children
+		// at all, so returning a placeholder row here would suppress it.
 		if (all.length === 0) {
-			return node
-				? []
-				: [
-						{
-							kind: "info",
-							label: "No problems found",
-							detail: "nothing linted yet, or nothing to report",
-							icon: "check",
-						},
-					];
+			return [];
 		}
 
 		if (!node) {

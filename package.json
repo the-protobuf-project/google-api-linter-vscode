@@ -615,6 +615,11 @@
 				"view": "googleApiLinter.views.dependencies",
 				"contents": "Browse the Proto Registry to add a module from the Buf Schema Registry.\\n[Open Proto Registry](command:googleApiLinter.openRegistry)\\nDependencies come from `deps:` in your `buf.yaml`.",
 				"when": "!googleApiLinter.hasDeps"
+			},
+			{
+				"view": "googleApiLinter.views.problems",
+				"contents": "No problems found.\n\nYour proto files pass every enabled rule.\n\n[Lint Workspace](command:googleApiLinter.lintWorkspace)",
+				"when": "!googleApiLinter.hasProblems"
 			}
 		]
 	},

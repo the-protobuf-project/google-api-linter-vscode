@@ -28,6 +28,8 @@ All notable changes to this extension are documented here. The format follows
   offending source lines quoted.
 - **Symbol search** over the workspace index.
 - `gapi.lintOnStartup` (default true): lint the workspace when it opens.
+- A centred empty state in Problems when nothing is wrong, with a Lint
+  Workspace button, rather than a row pretending to be one.
 
 ### Fixed
 
