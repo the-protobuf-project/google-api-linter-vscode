@@ -5,6 +5,7 @@
 export const CONFIG_TEMPLATE = `# Protobuf AIP Linter Configuration
 # See: https://linter.aip.dev/configuration
 # Config must be an array of rule blocks (api-linter lint.Configs).
+# Paths in included_paths / excluded_paths are relative to this file.
 
 - included_paths:
     - "**/*.proto"
@@ -14,6 +15,12 @@ export const CONFIG_TEMPLATE = `# Protobuf AIP Linter Configuration
   # Enable specific rules (optional)
   # enabled_rules:
   #   - custom::rule::name
+
+# Turn a whole folder off: "all" is every rule at once.
+# - included_paths:
+#     - "vendor/**/*.proto"
+#   disabled_rules:
+#     - all
 `;
 
 /** Glob pattern for matching Protocol Buffer files */

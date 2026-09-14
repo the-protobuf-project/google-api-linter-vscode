@@ -430,6 +430,13 @@ const WORKSPACE_PROTOBUF_YAML_TEMPLATE = `# Proto workspace config (Protobuf AIP
 
 # Optional: list of directories containing .proto files (default: this directory)
 # proto_path: .
+
+# Optional: folders and files the linter skips entirely. A bare directory name
+# covers everything under it; * and ** work as usual.
+# exclude:
+#   - vendor
+#   - third_party
+#   - "**/*.pb.proto"
 `;
 
 /**

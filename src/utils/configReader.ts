@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { parse as parseYaml } from "yaml";
+import { createGlobMatcher } from "./glob";
 import { getModuleGraph } from "./moduleGraph";
 
 /**
@@ -9,6 +10,8 @@ import { getModuleGraph } from "./moduleGraph";
 export interface GapiConfig {
 	protoPath: string;
 	protoPaths: string[];
+	/** Raw `exclude` globs, relative to the config file's own directory. */
+	exclude: string[];
 }
 
 /**
@@ -60,6 +63,9 @@ function collectPathValues(value: unknown, into: string[]): void {
  * Accepts `proto_path` and `proto_paths`, each as a scalar or a list. Paths are
  * resolved relative to the config file. Falls back to the config's own
  * directory when neither key is present.
+ *
+ * Also reads `exclude` (alias: `excluded_paths`), the globs naming folders and
+ * files the linter should leave alone entirely.
  */
 export async function readGapiConfig(
 	configUri: vscode.Uri,
@@ -94,9 +100,14 @@ export async function readGapiConfig(
 			protoPaths.push(configDir);
 		}
 
+		const exclude: string[] = [];
+		collectPathValues(doc.exclude, exclude);
+		collectPathValues(doc.excluded_paths, exclude);
+
 		return {
 			protoPath: protoPaths[0],
 			protoPaths,
+			exclude,
 		};
 	} catch (error) {
 		console.error("Error reading workspace.protobuf.yaml:", error);
@@ -170,4 +181,62 @@ export async function getProtoPathsForFile(
 		return getProtoPaths(outputChannel);
 	}
 	return dedupeResolved([...(await getGapiConfigProtoPaths()), ...modulePaths]);
+}
+
+/**
+ * Which protos the linter should not touch at all, per `workspace.protobuf.yaml`.
+ *
+ * This is the blunt instrument, and deliberately so. `.api-linter.yaml` can
+ * silence every rule for a path, but api-linter still parses those files and
+ * still reports them as linted; `exclude` drops them before a process is ever
+ * spawned, which is what you want for vendored or generated trees that are not
+ * yours to fix.
+ */
+export interface ProtoExclusion {
+	/** Directory the patterns are written relative to, or null when none apply. */
+	root: string | null;
+	/** Raw patterns, as written in the config. */
+	patterns: string[];
+	/** True when `absolutePath` is excluded from linting. */
+	isExcluded(absolutePath: string): boolean;
+}
+
+/** An exclusion that excludes nothing, for workspaces with no config. */
+const NO_EXCLUSION: ProtoExclusion = {
+	root: null,
+	patterns: [],
+	isExcluded: () => false,
+};
+
+/**
+ * Reads the workspace's `exclude` globs and compiles them into a predicate.
+ *
+ * Call this once per lint pass rather than once per file: it reads the config
+ * from disk, and a workspace lint asks about thousands of files.
+ */
+export async function getProtoExclusion(): Promise<ProtoExclusion> {
+	const configUri = await findGapiConfigFile();
+	if (!configUri) {
+		return NO_EXCLUSION;
+	}
+	const config = await readGapiConfig(configUri);
+	if (!config || config.exclude.length === 0) {
+		return NO_EXCLUSION;
+	}
+
+	const root = path.dirname(configUri.fsPath);
+	const matcher = createGlobMatcher(config.exclude);
+	return {
+		root,
+		patterns: config.exclude,
+		isExcluded: (absolutePath: string) => {
+			const relative = path.relative(root, path.resolve(absolutePath));
+			// A file outside the config's own tree is not something these
+			// workspace-relative patterns have any claim over.
+			if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+				return false;
+			}
+			return matcher(relative);
+		},
+	};
 }

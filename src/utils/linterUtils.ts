@@ -6,6 +6,7 @@ import * as vscode from "vscode";
 import YAML from "yaml";
 import { CONFIG_FILE_NAME } from "../constants";
 import type { LinterOptions, LinterOutput, LinterProblem } from "../types";
+import { toPosix } from "./glob";
 
 export type ResolvedApiLinterConfig = {
 	/** Path passed to api-linter --config */
@@ -120,6 +121,74 @@ function getProtobufRootProtoPath(filePath: string): string | null {
 	return null;
 }
 
+/** True when `candidate` is `dir` itself or sits somewhere beneath it. */
+const contains = (dir: string, candidate: string): boolean => {
+	const root = path.resolve(dir);
+	const target = path.resolve(candidate);
+	return target === root || target.startsWith(root + path.sep);
+};
+
+/**
+ * The directory api-linter runs from, and therefore the directory every file
+ * argument -- and every `included_paths` / `excluded_paths` glob in the config
+ * -- is relative to.
+ *
+ * This is the whole reason path scoping works at all. api-linter matches those
+ * globs against the file name it was handed, so passing a bare `book.proto`
+ * from inside its own directory made every directory glob a guaranteed miss:
+ * `vendor/**` can never match `book.proto`. Running from the directory that
+ * owns the config instead, with `vendor/book.proto` as the argument, is what
+ * lets a config say which folders it governs.
+ *
+ * Without a config there is nothing to be relative to, so the file's own
+ * directory stays the root and the argument stays a bare base name.
+ *
+ * @param absolutePath - The proto being linted
+ * @param configPath - Governing `.api-linter.yaml`, if one was found
+ * @returns Absolute directory to spawn in
+ */
+const resolveLintRoot = (
+	absolutePath: string,
+	configPath: string | null,
+): string => {
+	const fileDir = path.dirname(absolutePath);
+	if (!configPath) {
+		return fileDir;
+	}
+
+	const configDir = path.dirname(path.resolve(configPath));
+	if (contains(configDir, absolutePath)) {
+		return configDir;
+	}
+
+	// A config pointed at from elsewhere (`gapi.configPath` naming a shared file
+	// outside the tree) still needs a root its globs can be written against, and
+	// the workspace folder is the one the author would have had in mind.
+	const workspaceFolder = vscode.workspace.workspaceFolders?.length
+		? (vscode.workspace.getWorkspaceFolder(vscode.Uri.file(absolutePath))?.uri
+				.fsPath ?? vscode.workspace.workspaceFolders[0].uri.fsPath)
+		: null;
+	if (workspaceFolder && contains(workspaceFolder, absolutePath)) {
+		return path.resolve(workspaceFolder);
+	}
+	return fileDir;
+};
+
+/**
+ * The file argument for one proto: posix, and relative to the lint root so the
+ * config's path globs have something with directories in it to match.
+ *
+ * @param absolutePath - The proto being linted
+ * @param lintRoot - Directory api-linter will be spawned in
+ */
+const toFileArgument = (absolutePath: string, lintRoot: string): string => {
+	const relative = path.relative(lintRoot, absolutePath);
+	if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+		return path.basename(absolutePath);
+	}
+	return toPosix(relative);
+};
+
 /**
  * Builds every argument an api-linter invocation needs except the file names:
  * config, proto paths, rule toggles, output format. All of these are derived from
@@ -136,21 +205,31 @@ const buildSharedLinterArgs = (
 	const args: string[] = [];
 	let tempConfigPath: string | null = null;
 
+	const absolutePath = path.isAbsolute(filePath)
+		? filePath
+		: path.resolve(filePath);
+	const fileDir = path.dirname(absolutePath);
+
 	const configToUse = options.configPath
 		? resolveWorkspaceVariables(options.configPath, filePath)
 		: findApiLinterConfig(filePath);
-	if (configToUse && fs.existsSync(configToUse)) {
-		const resolved = resolveConfigToArrayFormat(configToUse);
+	const activeConfig =
+		configToUse && fs.existsSync(configToUse) ? configToUse : null;
+	if (activeConfig) {
+		const resolved = resolveConfigToArrayFormat(activeConfig);
 		args.push("--config", resolved.path);
 		tempConfigPath = resolved.tempFile;
 	}
 
-	const absolutePath = path.isAbsolute(filePath)
-		? filePath
-		: path.resolve(filePath);
-	const workingDir = path.dirname(absolutePath);
+	const workingDir = resolveLintRoot(absolutePath, activeConfig);
 
+	// The root comes first so the root-relative file argument resolves against
+	// it; the file's own directory follows so sibling imports keep resolving the
+	// way they did when it was the only root.
 	args.push("--proto-path", workingDir);
+	if (fileDir !== workingDir) {
+		args.push("--proto-path", fileDir);
+	}
 
 	const workspaceFolders = vscode.workspace.workspaceFolders;
 	if (workspaceFolders && workspaceFolders.length > 0) {
@@ -228,7 +307,7 @@ export const buildLinterArgs = (
 		filePath,
 		options,
 	);
-	const fileName = path.basename(path.resolve(filePath));
+	const fileName = toFileArgument(path.resolve(filePath), workingDir);
 	args.push(fileName);
 	return { args, workingDir, fileName, tempConfigPath };
 };
@@ -248,7 +327,7 @@ export interface LinterBatch {
 	workingDir: string;
 	/** Shared flags: --config, --proto-path, rule toggles, --output-format. */
 	baseArgs: string[];
-	/** File arguments, in argv order. */
+	/** File arguments, in argv order: posix paths relative to `workingDir`. */
 	fileNames: string[];
 	/** Absolute path of each entry in fileNames, same order. */
 	filePaths: string[];
@@ -319,7 +398,7 @@ export function buildLinterBatches(
 		};
 
 		for (const absolute of group) {
-			const fileName = path.basename(absolute);
+			const fileName = toFileArgument(absolute, shared.workingDir);
 			const cost = fileName.length + 1;
 			if (
 				fileNames.length > 0 &&

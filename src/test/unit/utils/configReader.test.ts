@@ -37,6 +37,7 @@ import * as path from "node:path";
 import {
 	findGapiConfigFile,
 	findGapiConfigFileInFolder,
+	getProtoExclusion,
 	getProtoPaths,
 	getProtoPathsForFile,
 	readGapiConfig,
@@ -633,5 +634,101 @@ describe("caching", () => {
 		useWorkspace(two);
 		invalidateModuleGraphCache();
 		expect(await getProtoPaths()).toEqual([path.join(two, "b")]);
+	});
+});
+
+/* ------------------------------------------------------------------ *
+ * Excluding folders from linting
+ * ------------------------------------------------------------------ */
+
+describe("getProtoExclusion", () => {
+	/** Writes a config at `root` and returns the compiled exclusion. */
+	async function exclusionFor(contents: string) {
+		const root = makeTree({ "workspace.protobuf.yaml": contents });
+		useWorkspace(root);
+		return { root, exclusion: await getProtoExclusion() };
+	}
+
+	test("excludes everything under a bare directory name", async () => {
+		const { root, exclusion } = await exclusionFor("exclude:\n  - vendor\n");
+		expect(exclusion.isExcluded(path.join(root, "vendor/book.proto"))).toBe(
+			true,
+		);
+		expect(
+			exclusion.isExcluded(path.join(root, "vendor/deep/book.proto")),
+		).toBe(true);
+		expect(exclusion.isExcluded(path.join(root, "src/book.proto"))).toBe(false);
+	});
+
+	test("accepts a scalar as readily as a list", async () => {
+		const { root, exclusion } = await exclusionFor("exclude: vendor\n");
+		expect(exclusion.isExcluded(path.join(root, "vendor/book.proto"))).toBe(
+			true,
+		);
+	});
+
+	test("accepts excluded_paths as an alias", async () => {
+		const { root, exclusion } = await exclusionFor(
+			"excluded_paths:\n  - third_party\n",
+		);
+		expect(
+			exclusion.isExcluded(path.join(root, "third_party/book.proto")),
+		).toBe(true);
+	});
+
+	test("matches file globs, not only directories", async () => {
+		const { root, exclusion } = await exclusionFor(
+			'exclude:\n  - "**/*.pb.proto"\n',
+		);
+		expect(exclusion.isExcluded(path.join(root, "gen/book.pb.proto"))).toBe(
+			true,
+		);
+		expect(exclusion.isExcluded(path.join(root, "gen/book.proto"))).toBe(false);
+	});
+
+	test("patterns are relative to the config, not to the workspace root", async () => {
+		// The config sits one level down, so `vendor` means that module's vendor
+		// directory -- a sibling module's vendor tree is not its business.
+		const root = makeTree({
+			"mod/workspace.protobuf.yaml": "exclude:\n  - vendor\n",
+		});
+		useWorkspace(root);
+		const exclusion = await getProtoExclusion();
+		expect(exclusion.isExcluded(path.join(root, "mod/vendor/a.proto"))).toBe(
+			true,
+		);
+		expect(exclusion.isExcluded(path.join(root, "other/vendor/a.proto"))).toBe(
+			false,
+		);
+	});
+
+	test("never claims a file outside the config's own tree", async () => {
+		const { exclusion } = await exclusionFor("exclude:\n  - vendor\n");
+		const elsewhere = makeTree({ "vendor/book.proto": "x" });
+		expect(
+			exclusion.isExcluded(path.join(elsewhere, "vendor/book.proto")),
+		).toBe(false);
+	});
+
+	test("excludes nothing when no config is open", async () => {
+		useWorkspace(makeTree({ "keep.txt": "x" }));
+		const exclusion = await getProtoExclusion();
+		expect(exclusion.root).toBeNull();
+		expect(exclusion.patterns).toEqual([]);
+		expect(exclusion.isExcluded("/anywhere/book.proto")).toBe(false);
+	});
+
+	test("excludes nothing when the config has no exclude key", async () => {
+		const { root, exclusion } = await exclusionFor("proto_path: .\n");
+		expect(exclusion.isExcluded(path.join(root, "vendor/book.proto"))).toBe(
+			false,
+		);
+	});
+
+	test("reports the patterns it compiled, for the output channel", async () => {
+		const { exclusion } = await exclusionFor(
+			"exclude:\n  - vendor\n  - third_party\n",
+		);
+		expect(exclusion.patterns).toEqual(["vendor", "third_party"]);
 	});
 });

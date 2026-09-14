@@ -19,7 +19,15 @@
  * provider's workspace-wide replacement — in linterProvider.test.ts.
  */
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+} from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -676,6 +684,97 @@ describe("buildLinterArgs", () => {
 			fs.rmSync(configPath, { force: true });
 		}
 	});
+
+	// Everything below is what makes a config's path scoping mean anything.
+	// api-linter matches included_paths and excluded_paths against the file name
+	// it was handed, so a bare base name passed from the file's own directory
+	// made every directory pattern a guaranteed miss: no glob naming a folder
+	// can match "book.proto". The run has to happen from the directory that owns
+	// the config, with a path relative to it, or path scoping silently does
+	// nothing -- which is worse than failing, because the config looks right.
+	describe("with a config governing the file", () => {
+		let configPath: string;
+
+		beforeEach(() => {
+			configPath = path.join(root, ".api-linter.yaml");
+			fs.writeFileSync(
+				configPath,
+				'- included_paths:\n    - "pkg/**"\n  disabled_rules:\n    - all\n',
+			);
+		});
+
+		afterEach(() => {
+			fs.rmSync(configPath, { force: true });
+		});
+
+		test("runs from the config's directory", () => {
+			withWorkspaceFolders([root], () => {
+				const { workingDir } = buildLinterArgs(protoFile, options());
+				expect(workingDir).toBe(root);
+			});
+		});
+
+		test("names the file relative to that directory, in posix form", () => {
+			withWorkspaceFolders([root], () => {
+				const { args, fileName } = buildLinterArgs(protoFile, options());
+				expect(fileName).toBe("pkg/v1/book.proto");
+				expect(args[args.length - 1]).toBe("pkg/v1/book.proto");
+			});
+		});
+
+		test("puts the config's directory on the proto path so that name resolves", () => {
+			withWorkspaceFolders([root], () => {
+				const { args } = buildLinterArgs(protoFile, options());
+				const roots = args.filter(
+					(_arg, at) => args[at - 1] === "--proto-path",
+				);
+				expect(roots[0]).toBe(root);
+			});
+		});
+
+		test("keeps the file's own directory on the proto path for sibling imports", () => {
+			withWorkspaceFolders([root], () => {
+				const { args } = buildLinterArgs(protoFile, options());
+				expect(args).toContain(protoDir);
+			});
+		});
+
+		test("falls back to the base name for a config outside the file's tree", () => {
+			// `gapi.configPath` can name a shared file anywhere; with no workspace
+			// folder to relativize against there is nothing to be relative to.
+			const outside = fs.mkdtempSync(path.join(os.tmpdir(), "gapi-cfg-"));
+			const shared = path.join(outside, ".api-linter.yaml");
+			fs.writeFileSync(shared, "- disabled_rules: []\n");
+			try {
+				const { workingDir, fileName } = buildLinterArgs(
+					protoFile,
+					options({ configPath: shared }),
+				);
+				expect(workingDir).toBe(protoDir);
+				expect(fileName).toBe("book.proto");
+			} finally {
+				fs.rmSync(outside, { recursive: true, force: true });
+			}
+		});
+
+		test("relativizes against the workspace root for an out-of-tree config", () => {
+			const outside = fs.mkdtempSync(path.join(os.tmpdir(), "gapi-cfg-"));
+			const shared = path.join(outside, ".api-linter.yaml");
+			fs.writeFileSync(shared, "- disabled_rules: []\n");
+			try {
+				withWorkspaceFolders([root], () => {
+					const { workingDir, fileName } = buildLinterArgs(
+						protoFile,
+						options({ configPath: shared }),
+					);
+					expect(workingDir).toBe(root);
+					expect(fileName).toBe("pkg/v1/book.proto");
+				});
+			} finally {
+				fs.rmSync(outside, { recursive: true, force: true });
+			}
+		});
+	});
 });
 
 describe("buildLinterBatches", () => {
@@ -824,7 +923,11 @@ describe("buildLinterBatches", () => {
 						new Set(batch.filePaths.map((p) => path.dirname(p))).size,
 					).toBe(1);
 					for (const [at, filePath] of batch.filePaths.entries()) {
-						expect(path.basename(filePath)).toBe(batch.fileNames[at]);
+						// The argument is whatever the cwd makes it, base name or
+						// root-relative path; either way it has to name this file.
+						expect(path.resolve(batch.workingDir, batch.fileNames[at])).toBe(
+							path.resolve(filePath),
+						);
 					}
 				}
 

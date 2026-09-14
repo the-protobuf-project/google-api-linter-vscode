@@ -3,8 +3,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { BinaryManager } from "./binaryManager";
+import { WORKSPACE_PROTOBUF_YAML } from "./constants";
 import type { LinterOptions, LinterOutput } from "./types";
-import { getProtoPaths } from "./utils/configReader";
+import { getProtoExclusion, getProtoPaths } from "./utils/configReader";
 import { findProtoFiles } from "./utils/fileUtils";
 import {
 	buildLinterArgs,
@@ -113,6 +114,18 @@ export class ApiLinterProvider {
 		silent: boolean = false,
 	): Promise<void> {
 		if (!document.fileName.endsWith(".proto")) {
+			return;
+		}
+
+		const exclusion = await getProtoExclusion();
+		if (exclusion.isExcluded(document.uri.fsPath)) {
+			this.outputChannel.appendLine(
+				`Skipping ${document.uri.fsPath}: excluded by ${WORKSPACE_PROTOBUF_YAML}`,
+			);
+			// Anything reported before the exclusion was added has to go, or the
+			// folder stays in the Problems panel exactly as the user asked it not to.
+			this.diagnosticCollection.delete(document.uri);
+			this.syntaxDiagnosticCollection.delete(document.uri);
 			return;
 		}
 
@@ -353,7 +366,23 @@ export class ApiLinterProvider {
 			}
 			return;
 		}
-		const protoFiles = await findProtoFiles();
+		const found = await findProtoFiles();
+		const exclusion = await getProtoExclusion();
+		const protoFiles = found.filter((uri) => !exclusion.isExcluded(uri.fsPath));
+		const excludedCount = found.length - protoFiles.length;
+		if (excludedCount > 0) {
+			this.outputChannel.appendLine(
+				`Excluded ${excludedCount} of ${found.length} proto file(s) via ${WORKSPACE_PROTOBUF_YAML} (${exclusion.patterns.join(", ")})`,
+			);
+			// Excluded files may still be carrying diagnostics from a run made
+			// before the pattern existed.
+			for (const uri of found) {
+				if (exclusion.isExcluded(uri.fsPath)) {
+					this.diagnosticCollection.delete(uri);
+					this.syntaxDiagnosticCollection.delete(uri);
+				}
+			}
+		}
 		if (protoFiles.length === 0) {
 			// Silent callers are automatic ones. A workspace with no protos is
 			// an ordinary thing to open, not something to interrupt over.
@@ -529,8 +558,12 @@ export class ApiLinterProvider {
 		}
 
 		const byFile = parseSyntaxErrorsByFile(stderr, cwd);
+		const exclusion = await getProtoExclusion();
 		const entries: [vscode.Uri, vscode.Diagnostic[]][] = [];
 		for (const [filePath, diagnostics] of byFile) {
+			if (exclusion.isExcluded(filePath)) {
+				continue;
+			}
 			entries.push([vscode.Uri.file(filePath), diagnostics]);
 		}
 		this.syntaxDiagnosticCollection.clear();
@@ -768,9 +801,18 @@ function parseBatchProblems(
 		return byPath;
 	}
 
+	// api-linter echoes back the argument it was given, so the argv name is the
+	// exact key; the base name stays as a fallback for output that went through
+	// any other normalization.
+	const byArgName = new Map<string, string>();
 	const byBaseName = new Map<string, string>();
-	for (const filePath of batch.filePaths) {
-		byBaseName.set(path.basename(filePath), path.normalize(filePath));
+	for (let i = 0; i < batch.filePaths.length; i++) {
+		const normalized = path.normalize(batch.filePaths[i]);
+		byBaseName.set(path.basename(batch.filePaths[i]), normalized);
+		const argName = batch.fileNames[i];
+		if (argName !== undefined) {
+			byArgName.set(argName, normalized);
+		}
 	}
 
 	for (const result of results) {
@@ -783,7 +825,10 @@ function parseBatchProblems(
 				? reported
 				: path.resolve(batch.workingDir, reported),
 		);
-		const key = byBaseName.get(path.basename(reported)) ?? resolved;
+		const key =
+			byArgName.get(reported) ??
+			byBaseName.get(path.basename(reported)) ??
+			resolved;
 
 		// Re-use the shared parser (and therefore the shared diagnostic source and
 		// rule-doc handling) by handing it a single-result array.
