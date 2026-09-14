@@ -17,12 +17,14 @@ import {
 import type { ProtoIndex } from "../index/types";
 import type { DependencyModel } from "../shared/protocol";
 import { invalidateModuleGraphCache } from "../utils/moduleGraph";
+import { buildApiReport } from "./apiReport";
 import { generate, generatePlugin, updateDependencies } from "./bufActions";
 import {
 	DEPENDENCIES_VIEW_ID,
 	DependenciesProvider,
 	type DepNode,
 } from "./dependenciesView";
+import { DetailsPanel } from "./detailsPanel";
 import { DETAILS_VIEW_ID, DetailsViewProvider } from "./detailsView";
 import { PROBLEMS_VIEW_ID, ProblemsProvider } from "./problemsView";
 import { RegistryPanel } from "./registryPanel";
@@ -86,6 +88,9 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 
 	/** The last model built, reused when checking updates. */
 	let lastModel: DependencyModel | undefined;
+
+	/** The tree's current selection, so a panel opened later starts on it. */
+	let lastSelected: string | undefined;
 
 	const loadModel = async (): Promise<DependencyModel> => {
 		lastModel = await buildDependencyModel({ log });
@@ -151,6 +156,7 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 		// The finding counts in the open payload came from this collection, so
 		// they are stale the moment it changes.
 		details.refresh();
+		void DetailsPanel.refresh();
 		const total = problems.total();
 		problemsView.badge =
 			total > 0
@@ -246,6 +252,66 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 		),
 
 		vscode.commands.registerCommand(
+			"googleApiLinter.openDetailsToSide",
+			async () => {
+				DetailsPanel.show(context.extensionUri, index, diagnostics);
+				await DetailsPanel.show_symbol(lastSelected);
+			},
+		),
+
+		vscode.commands.registerCommand("googleApiLinter.lockDetails", () => {
+			const locked = DetailsPanel.toggleLock();
+			if (locked === undefined) {
+				void vscode.window.showInformationMessage(
+					"Open the Proto Details tab first.",
+				);
+			}
+		}),
+
+		vscode.commands.registerCommand(
+			"googleApiLinter.generateApiReport",
+			async () => {
+				if (!index || index.stats().tier === "onDemand") {
+					void vscode.window.showWarningMessage(
+						"The API report needs the workspace index, which is not available.",
+					);
+					return;
+				}
+				await vscode.window.withProgress(
+					{
+						location: vscode.ProgressLocation.Notification,
+						title: "Building the API report…",
+					},
+					async (_progress, token) => {
+						const folder = vscode.workspace.workspaceFolders?.[0];
+						const report = buildApiReport(index, diagnostics, {
+							title: folder ? `${folder.name} — Proto API` : undefined,
+							isCancelled: () => token.isCancellationRequested,
+						});
+						if (token.isCancellationRequested) {
+							return;
+						}
+						// Untitled, so nothing is written to the workspace until
+						// the user decides where it belongs — or whether it does.
+						const document = await vscode.workspace.openTextDocument({
+							language: "markdown",
+							content: report.markdown,
+						});
+						await vscode.window.showTextDocument(document, {
+							preview: false,
+						});
+						// The preview is the point: it renders the Mermaid graphs.
+						await vscode.commands.executeCommand("markdown.showPreviewToSide");
+						log.appendLine(
+							`[report] ${report.stats.services} service(s), ${report.stats.rpcs} rpc(s), ` +
+								`${report.stats.messages} message(s), ${report.stats.problems} finding(s)`,
+						);
+					},
+				);
+			},
+		),
+
+		vscode.commands.registerCommand(
 			"googleApiLinter.dependencies.generatePlugin",
 			async (node?: DepNode) => {
 				if (!node || node.kind !== "plugin") {
@@ -331,7 +397,13 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 	);
 
 	return {
-		showSymbol: (fqn) => details.show(fqn),
+		showSymbol: (fqn) => {
+			lastSelected = fqn ?? lastSelected;
+			details.show(fqn);
+			// The tab is a second view of the same selection, not a replacement,
+			// so it follows along whenever it is open and unlocked.
+			void DetailsPanel.show_symbol(fqn);
+		},
 		refreshProblems,
 		refreshDependencies,
 	};

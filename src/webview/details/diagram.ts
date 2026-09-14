@@ -244,9 +244,21 @@ function layoutService(detail: SymbolDetail): Diagram {
  */
 function layoutMessage(detail: SymbolDetail): Diagram {
 	const SCALARS = new Set([
-		"double", "float", "int32", "int64", "uint32", "uint64", "sint32",
-		"sint64", "fixed32", "fixed64", "sfixed32", "sfixed64", "bool",
-		"string", "bytes",
+		"double",
+		"float",
+		"int32",
+		"int64",
+		"uint32",
+		"uint64",
+		"sint32",
+		"sint64",
+		"fixed32",
+		"fixed64",
+		"sfixed32",
+		"sfixed64",
+		"bool",
+		"string",
+		"bytes",
 	]);
 
 	const refs = detail.fields.filter(
@@ -366,7 +378,8 @@ export function toMermaid(detail: SymbolDetail | null): string | undefined {
 	}
 
 	if (detail.kind === "message") {
-		const SCALARS = /^(double|float|u?int(32|64)|s?fixed(32|64)|sint(32|64)|bool|string|bytes)$/;
+		const SCALARS =
+			/^(double|float|u?int(32|64)|s?fixed(32|64)|sint(32|64)|bool|string|bytes)$/;
 		const refs = detail.fields.filter(
 			(field) => !SCALARS.test(field.type.replace(/^\./, "")),
 		);

@@ -313,6 +313,25 @@ export class DiagnosticCollection {
 	clear(): void {
 		this.entries.clear();
 	}
+	/**
+	 * Iterates every uri carrying diagnostics.
+	 *
+	 * Part of the real API, and the only way to read a collection whole —
+	 * `get` needs a uri you already have. Code that summarises findings across
+	 * a workspace reaches for this rather than re-deriving the file list.
+	 */
+	forEach(
+		callback: (
+			uri: Uri,
+			diagnostics: readonly Diagnostic[],
+			collection: DiagnosticCollection,
+		) => void,
+	): void {
+		for (const [key, diagnostics] of this.entries) {
+			callback(Uri.parse(key), diagnostics, this);
+		}
+	}
+
 	/** Uris currently carrying diagnostics. */
 	uris(): string[] {
 		return [...this.entries.keys()];

@@ -328,6 +328,24 @@
 				"title": "Generate This Plugin",
 				"category": "Protobuf AIP Linter",
 				"icon": "$(play)"
+			},
+			{
+				"command": "googleApiLinter.openDetailsToSide",
+				"title": "Open Details to the Side",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(split-horizontal)"
+			},
+			{
+				"command": "googleApiLinter.lockDetails",
+				"title": "Lock Details Panel",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(lock)"
+			},
+			{
+				"command": "googleApiLinter.generateApiReport",
+				"title": "Generate API Report",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(book)"
 			}
 		],
 		"menus": {
@@ -387,6 +405,21 @@
 					"command": "googleApiLinter.reportIssue",
 					"when": "view == googleApiLinter.views.structure",
 					"group": "1_more@1"
+				},
+				{
+					"command": "googleApiLinter.generateApiReport",
+					"when": "view == googleApiLinter.views.structure",
+					"group": "navigation@5"
+				},
+				{
+					"command": "googleApiLinter.openDetailsToSide",
+					"when": "view == googleApiLinter.views.details",
+					"group": "navigation@1"
+				},
+				{
+					"command": "googleApiLinter.lockDetails",
+					"when": "view == googleApiLinter.views.details",
+					"group": "navigation@2"
 				}
 			],
 			"view/item/context": [
