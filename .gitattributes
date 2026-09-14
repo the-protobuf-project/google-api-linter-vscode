@@ -1,0 +1,18 @@
+# Normalise line endings to LF in the working tree on every platform.
+#
+# Without this, Git on Windows checks files out with CRLF, and `biome check`
+# — which formats to LF — reports every one of the repository's files as
+# misformatted. CI failed with 153 errors on windows-latest while passing on
+# macOS and Ubuntu, for no reason connected to the code.
+#
+# `eol=lf` is what makes this a working-tree guarantee rather than only a
+# repository-storage one, so a Windows contributor's local `bun run lint`
+# agrees with CI.
+* text=auto eol=lf
+
+# Binary files must never be touched by normalisation.
+*.png binary
+*.vsix binary
+*.ico binary
+*.woff binary
+*.woff2 binary
