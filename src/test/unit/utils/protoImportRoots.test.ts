@@ -45,6 +45,7 @@ import {
 	readGapiConfig,
 } from "../../../utils/configReader";
 import {
+	getGapiAnnotationRoots,
 	getProtoImportSearchRoots,
 	getProtoImportSearchRootsForFile,
 	invalidateProtoImportRootsCache,
@@ -632,5 +633,55 @@ describe("invalidateProtoImportRootsCache", () => {
 			invalidateProtoImportRootsCache();
 			invalidateProtoImportRootsCache();
 		}).not.toThrow();
+	});
+});
+
+describe("getGapiAnnotationRoots", () => {
+	test("returns the well-known directories that exist", async () => {
+		fs.mkdirSync(path.join(fakeHome, ".gapi/googleapis"), { recursive: true });
+		fs.mkdirSync(path.join(fakeHome, ".gapi/protobuf/src"), {
+			recursive: true,
+		});
+
+		const roots = await getGapiAnnotationRoots();
+		expect(roots).toContain(path.join(fakeHome, ".gapi", "googleapis"));
+		expect(roots).toContain(path.join(fakeHome, ".gapi", "protobuf", "src"));
+	});
+
+	test("omits what is not on disk rather than reporting it", async () => {
+		// A home of its own: `fakeHome` is built once for the whole file, so
+		// asserting emptiness against it would only pass while this test ran
+		// before the ones that populate it.
+		const emptyHome = fs.realpathSync(
+			fs.mkdtempSync(path.join(os.tmpdir(), "import-roots-empty-")),
+		);
+		tempRoots.push(emptyHome);
+		homedirSpy?.mockReturnValue(emptyHome);
+		try {
+			// The scanner would otherwise be handed paths that do not exist and
+			// spend a readdir failing on each.
+			expect(await getGapiAnnotationRoots()).toEqual([]);
+		} finally {
+			homedirSpy?.mockReturnValue(fakeHome);
+		}
+	});
+
+	test("is where google.api annotations come from for a non-buf workspace", async () => {
+		// The regression this guards. Annotation roots used to be the module
+		// graph's paths filtered to the buf cache, so a workspace that resolves
+		// `google/api/...` through `~/.gapi` — the copy this extension
+		// downloads itself — contributed no roots, found no `extend` blocks,
+		// and showed no Annotations section at all.
+		const api = path.join(fakeHome, ".gapi/googleapis/google/api");
+		fs.mkdirSync(api, { recursive: true });
+		fs.writeFileSync(path.join(api, "annotations.proto"), "");
+
+		const roots = await getGapiAnnotationRoots();
+		expect(roots.length).toBeGreaterThan(0);
+		expect(
+			roots.some((root) =>
+				path.join(fakeHome, ".gapi/googleapis/google/api").startsWith(root),
+			),
+		).toBe(true);
 	});
 });

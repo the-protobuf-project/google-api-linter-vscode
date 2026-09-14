@@ -42,7 +42,10 @@ import {
 	getModuleGraph,
 	invalidateModuleGraphCache,
 } from "./utils/moduleGraph";
-import { invalidateProtoImportRootsCache } from "./utils/protoImportRoots";
+import {
+	getGapiAnnotationRoots,
+	invalidateProtoImportRootsCache,
+} from "./utils/protoImportRoots";
 import { registerViews } from "./views";
 import { ProtoWorkspaceSymbolProvider } from "./workspaceSymbolProvider";
 
@@ -67,15 +70,31 @@ function readIndexBudget(): IndexBudget {
 async function annotationRootsFor(
 	outputChannel: vscode.OutputChannel,
 ): Promise<string[]> {
+	const roots: string[] = [];
 	try {
 		const graph = await getModuleGraph(outputChannel);
-		const roots = graph
-			.allProtoPaths()
-			.filter((p) => p.startsWith(getBufModuleCacheRoot()));
-		return [...new Set(roots)];
+		// Only the buf-cache entries. The workspace's own module roots are
+		// already covered by the index walk, and scanning them twice would
+		// double the cost for nothing.
+		roots.push(
+			...graph
+				.allProtoPaths()
+				.filter((p) => p.startsWith(getBufModuleCacheRoot())),
+		);
 	} catch {
-		return [];
+		// A missing or broken module graph must not cost the well-known roots.
 	}
+	try {
+		// `~/.gapi` is outside the walk for the same reason the buf cache is,
+		// and it is where the extension puts googleapis for workspaces that do
+		// not use buf at all. Without it those workspaces resolve
+		// `google.api.*` for navigation but report zero annotations, so the
+		// Annotations section never appears.
+		roots.push(...(await getGapiAnnotationRoots()));
+	} catch {
+		// ignore
+	}
+	return [...new Set(roots)];
 }
 
 /**

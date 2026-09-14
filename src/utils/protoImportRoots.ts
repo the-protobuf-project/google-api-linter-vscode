@@ -42,6 +42,22 @@ async function keepExistingDirs(
 	return checked.filter((dir): dir is string => dir !== undefined);
 }
 
+/**
+ * The well-known `~/.gapi` directories, whichever of them exist.
+ *
+ * Exported because annotations have to be scanned out of them. The extension
+ * downloads googleapis and protobuf here precisely so `import
+ * "google/api/annotations.proto"` resolves, and the `extend` blocks that
+ * declare `google.api.http`, `field_behavior` and `resource` live in those
+ * files — so a workspace resolving its imports this way found no annotations at
+ * all until this list reached the scanner.
+ *
+ * @returns Absolute directories that exist on disk
+ */
+export async function getGapiAnnotationRoots(): Promise<string[]> {
+	return keepExistingDirs(gapiHomeRoots());
+}
+
 /** Well-known fallback locations for googleapis / protobuf checkouts. */
 function gapiHomeRoots(): string[] {
 	const home = os.homedir();
