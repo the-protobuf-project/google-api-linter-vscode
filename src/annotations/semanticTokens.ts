@@ -25,6 +25,7 @@ import {
 	type AnnotationSource,
 	analyzeCached,
 	importClosure,
+	readAssignedIdent,
 	resolveDescriptor,
 } from "./resolve";
 
@@ -61,6 +62,9 @@ export const ANNOTATION_SEMANTIC_LEGEND = new vscode.SemanticTokensLegend(
 
 type TokenType = (typeof ANNOTATION_TOKEN_TYPES)[number];
 
+/** Value literals that are legal anywhere and are not enum members. */
+const KEYWORD_VALUES = new Set(["true", "false", "inf", "nan"]);
+
 /** A token before it is sorted into document order. */
 interface PendingToken {
 	readonly start: number;
@@ -82,31 +86,6 @@ function isDeprecated(doc: string | undefined): boolean {
 	const head = doc.slice(0, 240).toLowerCase();
 	return head.includes("deprecated");
 }
-
-/**
- * The identifier assigned to an option or body field, if one is written there.
- *
- * Only a bare identifier is returned: a string, a number or a `{` body is not a
- * value this provider has anything to say about.
- *
- * @param text - Full document text
- * @param from - Offset just past the option or field name
- * @returns Offsets of the assigned identifier, or undefined
- */
-function readAssignedIdent(
-	text: string,
-	from: number,
-): { start: number; end: number; value: string } | undefined {
-	const match = /^\s*[=:]\s*([A-Za-z_]\w*)/.exec(text.slice(from));
-	if (!match) {
-		return undefined;
-	}
-	const start = from + match[0].length - match[1].length;
-	return { start, end: start + match[1].length, value: match[1] };
-}
-
-/** Value literals that are legal anywhere and are not enum members. */
-const VALUE_KEYWORDS = new Set(["true", "false", "inf", "nan"]);
 
 /**
  * Semantic tokens for annotation names, option-body field names and the enum
@@ -344,7 +323,7 @@ export class AnnotationSemanticTokensProvider
 			return;
 		}
 		const assigned = readAssignedIdent(text, from);
-		if (!assigned || VALUE_KEYWORDS.has(assigned.value)) {
+		if (!assigned || KEYWORD_VALUES.has(assigned.value)) {
 			return;
 		}
 		out.push({

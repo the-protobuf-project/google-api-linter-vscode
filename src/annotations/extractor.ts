@@ -128,10 +128,26 @@ export interface ExtractedMessage {
 	readonly line: number;
 }
 
+/**
+ * One value of an enum.
+ *
+ * The doc comment is the point. A completion list can be built from names
+ * alone, but "is `ELEMENT_ACTUATOR` the right one here?" is answered only by
+ * what the specification wrote on that member, and dropping it meant the
+ * reader had to go open the enum to find out.
+ */
+export interface RawEnumValue {
+	readonly name: string;
+	readonly number: number;
+	readonly doc?: string;
+	/** 0-based line of the declaration. */
+	readonly line: number;
+}
+
 /** An enum declaration; its values become completion choices. */
 export interface ExtractedEnum {
 	readonly fqn: string;
-	readonly values: readonly string[];
+	readonly values: readonly RawEnumValue[];
 	readonly fileId: number;
 	/** 0-based. */
 	readonly line: number;
@@ -170,7 +186,7 @@ interface Frame {
 	/** Doc of the `extend` block itself, used when a field has none. */
 	blockDoc?: SplitComment;
 	fields?: RawField[];
-	values?: string[];
+	values?: RawEnumValue[];
 	line: number;
 }
 
@@ -421,7 +437,13 @@ export function extractAnnotations(
 				if (owner?.kind === "enum") {
 					const value = RE_ENUM_VALUE.exec(code);
 					if (value) {
-						owner.values?.push(value[1]);
+						const doc = splitComment(leadingComment(lines, i));
+						owner.values?.push({
+							name: value[1],
+							number: Number(value[2]),
+							doc: doc.prose || undefined,
+							line: i,
+						});
 					}
 				} else if (owner) {
 					const field = RE_FIELD.exec(code);

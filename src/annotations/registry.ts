@@ -26,7 +26,13 @@ import type {
 	AnnotationRegistry,
 	AnnotationTarget,
 } from "../index/types";
-import type { ExtractedFile, ExtractedMessage, RawField } from "./extractor";
+import type {
+	ExtractedEnum,
+	ExtractedFile,
+	ExtractedMessage,
+	RawEnumValue,
+	RawField,
+} from "./extractor";
 
 /** Scalar proto types, which never resolve to a body message. */
 const SCALARS = new Set([
@@ -83,7 +89,13 @@ export function isScalar(type: string): boolean {
 export class AnnotationRegistryImpl implements AnnotationRegistry {
 	private readonly descriptors = new Map<string, AnnotationDescriptor>();
 	private readonly messages = new Map<string, ExtractedMessage>();
-	private readonly enums = new Map<string, readonly string[]>();
+	private readonly enums = new Map<string, ExtractedEnum>();
+	/**
+	 * Value names per enum, kept beside {@link enums} rather than mapped on
+	 * demand: `enumValues` is called once per keystroke that opens a completion
+	 * list, and it returned a stored array before members carried their docs.
+	 */
+	private readonly enumNames = new Map<string, readonly string[]>();
 	private readonly origins = new Map<number, AnnotationOrigin>();
 	private readonly fileImports = new Map<string, readonly string[]>();
 	private readonly fileKeys = new Map<
@@ -136,7 +148,11 @@ export class AnnotationRegistryImpl implements AnnotationRegistry {
 		}
 		for (const enumType of file.enums) {
 			if (!this.enums.has(enumType.fqn)) {
-				this.enums.set(enumType.fqn, enumType.values);
+				this.enums.set(enumType.fqn, enumType);
+				this.enumNames.set(
+					enumType.fqn,
+					enumType.values.map((value) => value.name),
+				);
 				keys.enums.push(enumType.fqn);
 			}
 		}
@@ -162,6 +178,7 @@ export class AnnotationRegistryImpl implements AnnotationRegistry {
 		}
 		for (const fqn of keys.enums) {
 			this.enums.delete(fqn);
+			this.enumNames.delete(fqn);
 		}
 		this.fileKeys.delete(fileId);
 		const origin = this.origins.get(fileId);
@@ -177,6 +194,7 @@ export class AnnotationRegistryImpl implements AnnotationRegistry {
 		this.descriptors.clear();
 		this.messages.clear();
 		this.enums.clear();
+		this.enumNames.clear();
 		this.origins.clear();
 		this.fileImports.clear();
 		this.fileKeys.clear();
@@ -359,6 +377,24 @@ export class AnnotationRegistryImpl implements AnnotationRegistry {
 	 * @returns Its value names, or undefined when unknown
 	 */
 	enumValues(enumFqn: string): readonly string[] | undefined {
+		return this.enumNames.get(enumFqn);
+	}
+
+	/**
+	 * Values of a known enum with their numbers and documentation.
+	 * @param enumFqn - Fully-qualified enum name
+	 * @returns Its members, or undefined when unknown
+	 */
+	enumMembers(enumFqn: string): readonly RawEnumValue[] | undefined {
+		return this.enums.get(enumFqn)?.values;
+	}
+
+	/**
+	 * A known enum's declaration, for the "defined in" footer on a value card.
+	 * @param enumFqn - Fully-qualified enum name
+	 * @returns The declaration, or undefined when unknown
+	 */
+	enumOf(enumFqn: string): ExtractedEnum | undefined {
 		return this.enums.get(enumFqn);
 	}
 

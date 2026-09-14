@@ -352,7 +352,10 @@ message Outer {
 			"x.v1.Outer.Inner",
 		]);
 		expect(file.enums.map((e) => e.fqn)).toEqual(["x.v1.Outer.Inner.Kind"]);
-		expect(file.enums[0].values).toEqual(["KIND_UNSPECIFIED", "KIND_A"]);
+		expect(file.enums[0].values.map((v) => v.name)).toEqual([
+			"KIND_UNSPECIFIED",
+			"KIND_A",
+		]);
 	});
 
 	test("flattens oneof members into the enclosing message", () => {
@@ -384,6 +387,26 @@ message M {
 		expect(message.fields[0].repeated).toBe(false);
 	});
 
+	test("keeps the doc comment written on each enum value", () => {
+		const [enumType] = extract(`package x.v1;
+enum Element {
+  // Not specified.
+  ELEMENT_UNSPECIFIED = 0;
+
+  // A property whose value is dynamic, readable and writable.
+  ELEMENT_ACTUATOR = 4;
+
+  ELEMENT_UNDOCUMENTED = 5;
+}
+`).enums;
+		expect(enumType.values.map((v) => v.doc)).toEqual([
+			"Not specified.",
+			"A property whose value is dynamic, readable and writable.",
+			undefined,
+		]);
+		expect(enumType.values.map((v) => v.line)).toEqual([3, 6, 8]);
+	});
+
 	test("keeps enum values including aliases and negatives", () => {
 		const [enumType] = extract(`package x.v1;
 enum Kind {
@@ -395,12 +418,15 @@ enum Kind {
   KIND_NEG = -1;
 }
 `).enums;
-		expect(enumType.values).toEqual([
+		expect(enumType.values.map((v) => v.name)).toEqual([
 			"KIND_UNSPECIFIED",
 			"KIND_A",
 			"KIND_ALIAS",
 			"KIND_NEG",
 		]);
+		// The number is read, not counted: an alias repeats one and a negative
+		// is not an index.
+		expect(enumType.values.map((v) => v.number)).toEqual([0, 1, 1, -1]);
 	});
 
 	test("does not mistake rpc declarations for fields", () => {
@@ -643,7 +669,7 @@ message Body { string s = 1; }
 enum Kind { KIND_UNSPECIFIED = 0; }
 `);
 	expect(file.messages[0].fields.map((f) => f.name)).toEqual(["s"]);
-	expect(file.enums[0].values).toEqual(["KIND_UNSPECIFIED"]);
+	expect(file.enums[0].values.map((v) => v.name)).toEqual(["KIND_UNSPECIFIED"]);
 });
 
 // `leadingComment` strips `^\/\/+\s?`, which eats the tab that godoc — and the

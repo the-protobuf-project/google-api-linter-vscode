@@ -100,6 +100,8 @@ const REGISTRY_METHODS = [
 	"siteOf",
 	"importsOf",
 	"enumValues",
+	"enumMembers",
+	"enumOf",
 	"namespaces",
 	"resolveEnumFqn",
 	"resolveTypeFqn",

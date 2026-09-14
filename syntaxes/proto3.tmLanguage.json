@@ -6,7 +6,6 @@
 
 	"patterns": [
 		{ "include": "#comments" },
-		{ "include": "#googleTypes" },
 		{ "include": "#syntax" },
 		{ "include": "#package" },
 		{ "include": "#import" },
@@ -58,13 +57,12 @@
 			}
 		},
 		"optionStmt": {
-			"begin": "(option)\\s+(\\w+|\\(\\w+(\\.\\w+)*\\))(\\.\\w+)*\\s*(=)",
+			"begin": "(option)\\s+(\\w+|\\(\\w+(?:\\.\\w+)*\\))((?:\\.\\w+)*)\\s*(=)",
 			"beginCaptures": {
 				"1": { "name": "keyword.other.proto" },
 				"2": { "name": "support.other.proto" },
 				"3": { "name": "support.other.proto" },
-				"4": { "name": "support.other.proto" },
-				"5": { "name": "keyword.operator.assignment.proto" }
+				"4": { "name": "keyword.operator.assignment.proto" }
 			},
 			"end": "(;)",
 			"endCaptures": {
@@ -92,6 +90,7 @@
 			"endCaptures": {
 				"1": { "name": "punctuation.terminator.proto" }
 			},
+			"applyEndPatternLast": true,
 			"patterns": [
 				{ "include": "#constants" },
 				{ "include": "#number" },
@@ -111,11 +110,10 @@
 			]
 		},
 		"optionName": {
-			"match": "(\\w+|\\(\\w+(\\.\\w+)*\\))(\\.\\w+)*",
+			"match": "(\\w+|\\(\\w+(?:\\.\\w+)*\\))((?:\\.\\w+)*)",
 			"captures": {
 				"1": { "name": "support.other.proto" },
-				"2": { "name": "support.other.proto" },
-				"3": { "name": "support.other.proto" }
+				"2": { "name": "support.other.proto" }
 			}
 		},
 		"message": {
@@ -268,7 +266,7 @@
 			"name": "entity.name.class.proto"
 		},
 		"constants": {
-			"match": "\\b(true|false|max|[A-Z_]+)\\b",
+			"match": "\\b(true|false|max|[A-Z_][A-Z0-9_]*)\\b",
 			"name": "constant.language.proto"
 		},
 		"storagetypes": {
@@ -282,14 +280,6 @@
 		"number": {
 			"name": "constant.numeric.proto",
 			"match": "\\b((0(x|X)[0-9a-fA-F]*)|(([0-9]+\\.?[0-9]*)|(\\.[0-9]+))((e|E)(\\+|-)?[0-9]+)?)\\b"
-		},
-		"googleTypes": {
-			"patterns": [
-				{
-					"match": "\\b(google\\.(api|protobuf)\\.[a-zA-Z_][a-zA-Z0-9_]*)\\b",
-					"name": "entity.name.function.proto"
-				}
-			]
 		}
 	}
 }

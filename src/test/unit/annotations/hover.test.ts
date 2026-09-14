@@ -124,7 +124,9 @@ package demo.v1;
 
 enum Behavior {
   BEHAVIOR_UNSPECIFIED = 0;
+  // The consumer may leave the field unset.
   OPTIONAL = 1;
+  // The consumer must set the field.
   REQUIRED = 2;
 }
 
@@ -238,7 +240,7 @@ describe("annotation card", () => {
 			).hover,
 		);
 		expect(card).toContain(
-			"_Defined in_ [`demo/v1/annotations.proto:29`](file:///repo/demo/v1/annotations.proto#L29)",
+			"_Defined in_ [`demo/v1/annotations.proto:31`](file:///repo/demo/v1/annotations.proto#L31)",
 		);
 	});
 
@@ -526,6 +528,146 @@ extend some.other.Message {
 	});
 });
 
+describe("value card", () => {
+	test("documents the enum member assigned to an option", () => {
+		const card = cardOf(
+			hoverAt(
+				DEMO_REGISTRY,
+				`${DEMO_HEADER}message M {
+  string id = 1 [(demo.v1.demo_behavior) = REQU▮IRED];
+}
+`,
+			).hover,
+		);
+		expect(card).toContain("### `REQUIRED`");
+		expect(card).toContain(
+			"`demo.v1.Behavior` · value 2 · assigned to `(demo.v1.demo_behavior)`",
+		);
+		expect(card).toContain("The consumer must set the field.");
+	});
+
+	test("documents a member assigned to a body field", () => {
+		// The enum is reached through the body message, not through the
+		// option's own type, which is the case that used to resolve to nothing.
+		const card = cardOf(
+			hoverAt(
+				DEMO_REGISTRY,
+				`${DEMO_HEADER}message M {
+  string id = 1 [(demo.v1.demo_field) = {
+    behavior: OPTI▮ONAL
+  }];
+}
+`,
+			).hover,
+		);
+		expect(card).toContain("### `OPTIONAL`");
+		expect(card).toContain("assigned to `behavior` in `(demo.v1.demo_field)`");
+		expect(card).toContain("The consumer may leave the field unset.");
+	});
+
+	test("lists the alternatives with the current one marked", () => {
+		// The question a reader hovers a value to ask is "is this the right
+		// one", which only the other members answer.
+		const card = cardOf(
+			hoverAt(
+				DEMO_REGISTRY,
+				`${DEMO_HEADER}message M {
+  string id = 1 [(demo.v1.demo_behavior) = REQ▮UIRED];
+}
+`,
+			).hover,
+		);
+		expect(card).toContain("**`Behavior` values**");
+		expect(card).toContain("- `BEHAVIOR_UNSPECIFIED` = 0");
+		expect(card).toContain(
+			"- `OPTIONAL` = 1 — The consumer may leave the field unset.",
+		);
+		expect(card).toContain("- **`REQUIRED`** = 2");
+	});
+
+	test("says a value the enum does not declare is not one", () => {
+		const card = cardOf(
+			hoverAt(
+				DEMO_REGISTRY,
+				`${DEMO_HEADER}message M {
+  string id = 1 [(demo.v1.demo_behavior) = REQU▮IRE];
+}
+`,
+			).hover,
+		);
+		expect(card).toContain("**Not a value of** `demo.v1.Behavior`");
+		// Still lists what is legal: the card exists to fix the mistake.
+		expect(card).toContain("- `REQUIRED` = 2");
+	});
+
+	test("highlights the value alone", () => {
+		const hovered = hoverAt(
+			DEMO_REGISTRY,
+			`${DEMO_HEADER}message M {
+  string id = 1 [(demo.v1.demo_behavior) = REQ▮UIRED];
+}
+`,
+		);
+		expect(highlighted(hovered)).toBe("REQUIRED");
+	});
+
+	test("windows a long enum around the value under the cursor", () => {
+		// `Unit` in the VSS vocabulary has 76 members. Listing all of them
+		// produces a hover nobody reads, and listing the first twelve never
+		// contains the one being hovered.
+		const values = Array.from(
+			{ length: 40 },
+			(_, i) => `  VALUE_${i} = ${i};`,
+		).join("\n");
+		const registry = registryFrom({
+			"wide/v1/annotations.proto": `syntax = "proto3";
+package wide.v1;
+
+enum Wide {
+${values}
+}
+
+extend google.protobuf.FieldOptions {
+  // Picks one of many.
+  optional Wide wide = 60003;
+}
+`,
+		});
+		const card = cardOf(
+			hoverAt(
+				registry,
+				`syntax = "proto3";
+package use.v1;
+import "wide/v1/annotations.proto";
+message M {
+  string id = 1 [(wide.v1.wide) = VALUE_3▮0];
+}
+`,
+			).hover,
+		);
+		expect(card).toContain("### `VALUE_30`");
+		expect(card).toContain("- **`VALUE_30`** = 30");
+		// Two before it, so it reads as part of a list rather than the top of one.
+		expect(card).toContain("- `VALUE_28` = 28");
+		expect(card).not.toContain("`VALUE_27` = 27");
+		expect(card).not.toContain("`VALUE_0` = 0");
+		expect(card).toContain("_40 values in all;");
+	});
+
+	test("links the file the enum is declared in", () => {
+		const card = cardOf(
+			hoverAt(
+				DEMO_REGISTRY,
+				`${DEMO_HEADER}message M {
+  string id = 1 [(demo.v1.demo_behavior) = REQUIR▮ED];
+}
+`,
+			).hover,
+		);
+		expect(card).toContain("_Defined in_ [`demo/v1/annotations.proto:4`]");
+	});
+});
+
 describe("nothing to document", () => {
 	/** Cursor positions that are ordinary proto, not annotation syntax. */
 	const plain = [
@@ -539,6 +681,10 @@ describe("nothing to document", () => {
 			`${DEMO_HEADER}service S {\n  rpc Get(Get▮Request) returns (GetResponse);\n}\n`,
 		],
 		["a comment", `${DEMO_HEADER}// demo.v1.demo_b▮ehavior lives next door\n`],
+		[
+			"a bool value",
+			`${DEMO_HEADER}message M {\n  string id = 1 [(demo.v1.demo_field).required = tr▮ue];\n}\n`,
+		],
 		[
 			"a string literal",
 			`${DEMO_HEADER}message M {\n  string id = 1 [(demo.v1.demo_field).string.pattern = "demo.v1.dem▮o_field"];\n}\n`,

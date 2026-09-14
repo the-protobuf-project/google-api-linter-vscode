@@ -16,8 +16,10 @@ import type {
 	AnnotationField,
 	AnnotationTarget,
 } from "../index/types";
+import type { RawEnumValue } from "./extractor";
 import { TARGET_LABELS } from "./extractor";
 import type { AnnotationRegistryImpl } from "./registry";
+import type { ValueSite } from "./resolve";
 
 /** Where an annotation was declared, for the "defined in" footer. */
 export interface DefinitionSite {
@@ -236,6 +238,136 @@ export function renderFieldCard(
 	}
 
 	return lines.join("\n");
+}
+
+/**
+ * Hover card for an enum value written as an option's right-hand side.
+ *
+ * The card the reader actually wants when looking at `element:
+ * ELEMENT_ACTUATOR`: what that member means, what else the enum allows, and
+ * which of those they are currently on. The alternatives are listed in
+ * declaration order with the current one marked, because the question behind
+ * the hover is nearly always "is this the right one".
+ *
+ * @param site - The resolved value under the cursor
+ * @param registry - Registry used to read the enum's members
+ * @param definition - Where the enum was declared, for the footer
+ * @returns Markdown source
+ */
+export function renderValueCard(
+	site: ValueSite,
+	registry: AnnotationRegistryImpl,
+	definition?: DefinitionSite,
+): string {
+	const lines: string[] = [];
+	lines.push(`### \`${site.value}\``);
+
+	const where =
+		site.path.length > 0
+			? `\`${site.path.join(".")}\` in \`(${site.optionFqn})\``
+			: `\`(${site.optionFqn})\``;
+	if (site.member) {
+		lines.push(
+			`\`${site.enumFqn}\` · value ${site.member.number} · assigned to ${where}`,
+		);
+	} else {
+		// Not a member of the enum: a compile error, and the reason the reader
+		// is hovering. Say so before listing what is legal.
+		lines.push(`**Not a value of** \`${site.enumFqn}\` · assigned to ${where}`);
+	}
+	lines.push("");
+	if (site.member?.doc) {
+		lines.push(site.member.doc);
+		lines.push("");
+	}
+
+	const members = registry.enumMembers(site.enumFqn);
+	if (members && members.length > 0) {
+		lines.push(`**\`${enumName(site.enumFqn)}\` values**`);
+		lines.push("");
+		for (const member of cardValues(members, site.value)) {
+			const current = member.name === site.value;
+			const name = current ? `**\`${member.name}\`**` : `\`${member.name}\``;
+			lines.push(
+				`- ${name} = ${member.number}${member.doc ? ` — ${member.doc}` : ""}`,
+			);
+		}
+		if (members.length > MAX_CARD_ENUM_VALUES) {
+			lines.push("");
+			lines.push(
+				`_${members.length} values in all; see the declaration for the rest._`,
+			);
+		}
+		lines.push("");
+	}
+
+	const footer = renderEnumFooter(definition);
+	if (footer) {
+		lines.push(footer);
+	}
+	return lines.join("\n");
+}
+
+/**
+ * Members listed in full on a value card. `Unit` in the VSS vocabulary has 76
+ * and a hover that long is not read, it is scrolled past.
+ */
+const MAX_CARD_ENUM_VALUES = 12;
+
+/**
+ * The slice of an enum a card lists: all of it when short, otherwise a window
+ * around the value under the cursor.
+ *
+ * A window rather than the first N, because the first N of a 76-value enum
+ * almost never contains the value being hovered — which is the one member the
+ * reader is guaranteed to want.
+ *
+ * @param members - Every member, in declaration order
+ * @param value - The value under the cursor
+ * @returns The members to render, in declaration order
+ */
+function cardValues(
+	members: readonly RawEnumValue[],
+	value: string,
+): readonly RawEnumValue[] {
+	if (members.length <= MAX_CARD_ENUM_VALUES) {
+		return members;
+	}
+	const at = members.findIndex((member) => member.name === value);
+	// Two before the cursor's value, so it reads as part of a list rather than
+	// as the top of one. An unknown value falls back to the head of the enum.
+	const start =
+		at < 0
+			? 0
+			: Math.min(Math.max(at - 2, 0), members.length - MAX_CARD_ENUM_VALUES);
+	return members.slice(start, start + MAX_CARD_ENUM_VALUES);
+}
+
+/**
+ * Bare name of an enum, for a heading that does not repeat its package.
+ * @param enumFqn - Fully-qualified enum name
+ * @returns The last segment
+ */
+function enumName(enumFqn: string): string {
+	const cut = enumFqn.lastIndexOf(".");
+	return cut < 0 ? enumFqn : enumFqn.slice(cut + 1);
+}
+
+/**
+ * "Defined in" footer for an enum declaration.
+ * @param site - Declaration site, when known
+ * @returns Markdown line, or empty when nothing is known
+ */
+function renderEnumFooter(site: DefinitionSite | undefined): string {
+	if (!site?.importPath) {
+		return "";
+	}
+	const line = site.line + 1;
+	if (site.path) {
+		const uri = `file://${encodeURI(site.path.split("\\").join("/"))}#L${line}`;
+		return `_Defined in_ [\`${site.importPath}:${line}\`](${uri})`;
+	}
+	return `_Defined in_ \`${site.importPath}:${line}\``;
 }
 
 /**
