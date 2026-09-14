@@ -14,8 +14,22 @@ const writeFile = promisify(fs.writeFile);
 const readFile = promisify(fs.readFile);
 const chmod = promisify(fs.chmod);
 
-const GITHUB_API =
+const GITHUB_LATEST_RELEASE =
 	"https://api.github.com/repos/googleapis/api-linter/releases/latest";
+
+/**
+ * The release history, newest first. Only consulted when the newest tag turns
+ * out to have nothing for this machine; see `resolveRelease`.
+ */
+const GITHUB_RELEASE_HISTORY =
+	"https://api.github.com/repos/googleapis/api-linter/releases?per_page=20";
+
+/**
+ * What the release archives unpack to. The Windows build ships
+ * `api-linter.exe`, every other platform a bare `api-linter`. Installing under
+ * any other name means the post-extraction check never finds the binary.
+ */
+const BINARY_NAME = os.platform() === "win32" ? "api-linter.exe" : "api-linter";
 
 type GitHubReleaseAsset = {
 	name: string;
@@ -24,8 +38,20 @@ type GitHubReleaseAsset = {
 
 type GitHubRelease = {
 	tag_name: string;
+	draft?: boolean;
+	prerelease?: boolean;
 	assets: GitHubReleaseAsset[];
 };
+
+/** A release paired with the asset that matches this machine. */
+type ResolvedRelease = {
+	release: GitHubRelease;
+	asset: GitHubReleaseAsset;
+};
+
+/** Renders a release's assets for a log line or an error message. */
+const describeAssets = (assets: GitHubReleaseAsset[]): string =>
+	assets.length === 0 ? "no assets" : assets.map((a) => a.name).join(", ");
 
 /**
  * Handles downloading and managing the api-linter binary
@@ -40,7 +66,7 @@ export class ApiLinterDownloader {
 		this.outputChannel = outputChannel;
 		const homeDir = os.homedir();
 		this.GAPI_DIR = path.join(homeDir, ".gapi");
-		this.BINARY_PATH = path.join(this.GAPI_DIR, "api-linter");
+		this.BINARY_PATH = path.join(this.GAPI_DIR, BINARY_NAME);
 		this.METADATA_PATH = path.join(this.GAPI_DIR, "metadata.json");
 	}
 
@@ -139,7 +165,7 @@ export class ApiLinterDownloader {
 	}
 
 	private async getLatestVersion(): Promise<string> {
-		const release = (await fetchJson(GITHUB_API)) as GitHubRelease;
+		const { release } = await this.resolveRelease();
 		return release.tag_name;
 	}
 
@@ -156,20 +182,13 @@ export class ApiLinterDownloader {
 	public async downloadBinary(): Promise<void> {
 		try {
 			this.outputChannel.appendLine("Downloading api-linter binary...");
+			// `ensureBinary` gets here with the directory already made, but an
+			// update check after a wiped `.gapi` does not.
+			await this.ensureDirectory();
 
-			const release = (await fetchJson(GITHUB_API)) as GitHubRelease;
+			const { release, asset } = await this.resolveRelease();
 			const version = release.tag_name;
-			this.outputChannel.appendLine(`Latest version: ${version}`);
-
-			const asset = this.findAssetForPlatform(release.assets);
-
-			if (!asset) {
-				const platform = getPlatform();
-				const arch = getArch();
-				throw new Error(
-					`No compatible binary found for ${platform}-${arch}. Available assets: ${release.assets.map((a) => a.name).join(", ")}`,
-				);
-			}
+			this.outputChannel.appendLine(`Installing version: ${version}`);
 
 			const downloadUrl = asset.browser_download_url;
 			this.outputChannel.appendLine(`Downloading from: ${downloadUrl}`);
@@ -180,14 +199,6 @@ export class ApiLinterDownloader {
 			this.outputChannel.appendLine("Download complete. Extracting...");
 
 			await this.extractBinary(tarPath);
-
-			// Verify binary was extracted
-			if (!fs.existsSync(this.BINARY_PATH)) {
-				throw new Error(
-					"Binary extraction failed - file not found after extraction",
-				);
-			}
-
 			await this.updateMetadata(version);
 			this.outputChannel.appendLine(
 				`Binary downloaded and installed successfully at ${this.BINARY_PATH}`,
@@ -198,21 +209,82 @@ export class ApiLinterDownloader {
 		}
 	}
 
+	/**
+	 * Finds the newest release that actually ships a build for this machine.
+	 *
+	 * Upstream tags do not reliably carry a full set of assets. v2.4.0, for one,
+	 * published a single `api-linter.tar.gz` containing nothing but the Windows
+	 * executable, which left every macOS and Linux user staring at "No
+	 * compatible binary found". Reading `releases/latest` and stopping there
+	 * turns any such slip on Google's side into a hard failure here, so when the
+	 * newest tag has nothing for us we walk back through the release history for
+	 * one that does. An older linter is a far better outcome than no linter.
+	 */
+	private async resolveRelease(): Promise<ResolvedRelease> {
+		const platform = getPlatform();
+		const arch = getArch();
+
+		const latest = (await fetchJson(GITHUB_LATEST_RELEASE)) as GitHubRelease;
+		const latestAsset = this.findAssetForPlatform(latest.assets);
+		if (latestAsset) {
+			return { release: latest, asset: latestAsset };
+		}
+
+		this.outputChannel.appendLine(
+			`Release ${latest.tag_name} ships no ${platform}-${arch} build (assets: ${describeAssets(latest.assets)}). Searching earlier releases...`,
+		);
+
+		const history = (await fetchJson(
+			GITHUB_RELEASE_HISTORY,
+		)) as GitHubRelease[];
+		for (const release of history) {
+			// Drafts and pre-releases are not what `releases/latest` would have
+			// offered, so they are not what a fallback should silently install.
+			if (release.draft || release.prerelease) {
+				continue;
+			}
+			const asset = this.findAssetForPlatform(release.assets);
+			if (asset) {
+				this.outputChannel.appendLine(
+					`Falling back to ${release.tag_name}, the newest release with a ${platform}-${arch} build.`,
+				);
+				return { release, asset };
+			}
+		}
+
+		throw new Error(
+			`No api-linter build for ${platform}-${arch} in ${latest.tag_name} or the ${history.length} releases before it. ` +
+				`${latest.tag_name} published: ${describeAssets(latest.assets)}. ` +
+				'Point the "gapi.binaryPath" setting at a locally installed api-linter to work around this.',
+		);
+	}
+
 	private findAssetForPlatform(
 		assets: GitHubReleaseAsset[],
 	): GitHubReleaseAsset | undefined {
 		const platform = getPlatform();
 		const arch = getArch();
-		// Asset name includes version: api-linter-2.1.0-darwin-arm64.tar.gz
+		// Asset name includes version: api-linter-2.3.1-darwin-arm64.tar.gz
 		const assetPattern = `${platform}-${arch}.tar.gz`;
 		return assets.find((asset) => asset.name.includes(assetPattern));
 	}
 
 	private async extractBinary(tarPath: string): Promise<void> {
-		const extractDir = this.GAPI_DIR;
-		await exec(`tar -xzf "${tarPath}" -C "${extractDir}"`);
+		try {
+			await exec(`tar -xzf "${tarPath}" -C "${this.GAPI_DIR}"`);
+		} finally {
+			// Leaving a 10MB archive behind on a failed extract just means the
+			// next attempt starts from a dirtier directory.
+			fs.rmSync(tarPath, { force: true });
+		}
+
+		if (!fs.existsSync(this.BINARY_PATH)) {
+			throw new Error(
+				`Archive did not contain ${BINARY_NAME}; nothing was installed at ${this.BINARY_PATH}`,
+			);
+		}
+
 		await chmod(this.BINARY_PATH, "755");
-		fs.unlinkSync(tarPath);
 	}
 
 	private async updateMetadata(version: string): Promise<void> {
