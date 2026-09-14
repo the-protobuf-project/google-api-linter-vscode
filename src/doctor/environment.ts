@@ -263,14 +263,20 @@ export interface ProbeConfig {
  *
  * @param config - Binary paths, normally read from settings
  * @param platform - Overridable so hint selection is testable
+ * @param managers - Overridable for the same reason. `platform` alone decides
+ * which managers are *considered*; whether each one resolves is still a fact
+ * about the host, so a test asserting "absent managers are marked" only holds
+ * on a host that happens to lack them. Passing them in makes that assertion
+ * about the branch under test rather than about the runner.
  * @returns What is installed, what is missing, and how to fix it
  */
 export async function inspectEnvironment(
 	config: ProbeConfig,
 	platform: NodeJS.Platform = process.platform,
+	managerOverride?: Managers,
 ): Promise<EnvironmentReport> {
 	const gapiRoot = config.gapiRoot ?? path.join(os.homedir(), ".gapi");
-	const managers = await detectManagers(platform);
+	const managers = managerOverride ?? (await detectManagers(platform));
 
 	const [linter, buf, clang, googleapis, protobuf, rootExists] =
 		await Promise.all([

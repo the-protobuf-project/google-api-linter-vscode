@@ -20,6 +20,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
 	inspectEnvironment,
+	type Managers,
 	type ProbeConfig,
 	statusSummary,
 } from "../../../doctor/environment";
@@ -48,6 +49,18 @@ const ABSENT: ProbeConfig = {
 	apiLinterPath: "api-linter-does-not-exist-xyz",
 	bufPath: "buf-does-not-exist-xyz",
 	clangFormatPath: "clang-format-does-not-exist-xyz",
+};
+
+/** A machine with no package manager at all. */
+const NO_MANAGERS: Managers = {
+	brew: false,
+	apt: false,
+	dnf: false,
+	pacman: false,
+	winget: false,
+	choco: false,
+	scoop: false,
+	go: false,
 };
 
 describe("requirement levels", () => {
@@ -166,21 +179,37 @@ describe("install hints", () => {
 	test("keeps a hint whose manager is absent, but marks it", async () => {
 		// A fresh machine's real answer is often "install Homebrew first", and a
 		// page that hides the option cannot say so.
+		//
+		// The managers are supplied rather than probed. Asking the host whether
+		// winget resolves makes the assertion a fact about the runner: this read
+		// as passing everywhere except Windows, the one platform where the hints
+		// are real, because GitHub's Windows image ships winget.
 		const report = await inspectEnvironment(
 			{ ...ABSENT, gapiRoot: emptyRoot() },
 			"win32",
+			NO_MANAGERS,
 		);
 		const buf = report.dependencies.find((d) => d.id === "buf");
 		expect(buf?.installHints.length).toBeGreaterThan(0);
-		// The Windows-only managers cannot resolve on this host, so they are
-		// listed and flagged rather than silently dropped. Go is deliberately
-		// not asserted: it is cross-platform, so whether it resolves depends on
-		// the machine running the suite rather than on the branch under test.
 		for (const via of ["winget", "Scoop"]) {
 			expect(buf?.installHints.find((h) => h.via === via)?.unavailable).toBe(
 				true,
 			);
 		}
+	});
+
+	test("leaves a hint unmarked when its manager is present", async () => {
+		// The other half of the contract: `unavailable` distinguishes the two,
+		// so a test that only ever sees absent managers cannot tell whether the
+		// flag means anything.
+		const report = await inspectEnvironment(
+			{ ...ABSENT, gapiRoot: emptyRoot() },
+			"win32",
+			{ ...NO_MANAGERS, winget: true },
+		);
+		const hints = report.dependencies.find((d) => d.id === "buf")?.installHints;
+		expect(hints?.find((h) => h.via === "winget")?.unavailable).toBeUndefined();
+		expect(hints?.find((h) => h.via === "Scoop")?.unavailable).toBe(true);
 	});
 
 	test("says the extension installs what it can install itself", async () => {
