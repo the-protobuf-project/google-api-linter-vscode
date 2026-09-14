@@ -72,6 +72,36 @@ function bufPath(): string {
 	);
 }
 
+/**
+ * Every directory in the workspace that holds a `buf.gen.yaml`.
+ *
+ * A template does not have to sit beside a `buf.yaml`. Repositories routinely
+ * keep one at the repository root while the modules live under `proto/`, or
+ * several — `buf.gen.go.yaml`, `buf.gen.java.yaml` — in a `gen/` directory of
+ * their own. Looking only where a module was found missed all of them, which
+ * is why the Generate section came up empty in workspaces that plainly had
+ * templates in them.
+ *
+ * `findFiles` covers every folder of a multi-root workspace, so "wherever I
+ * open" is handled by the search itself rather than by iterating folders.
+ *
+ * @returns Absolute directories, deduplicated
+ */
+async function workspaceGenDirs(): Promise<string[]> {
+	try {
+		const uris = await vscode.workspace.findFiles(
+			"**/buf.gen*.{yaml,yml}",
+			"**/{node_modules,.git,out,dist,build,.vscode-test}/**",
+			512,
+		);
+		return [...new Set(uris.map((uri) => path.dirname(uri.fsPath)))];
+	} catch {
+		// Discovery is an enhancement: a workspace that cannot be searched still
+		// gets the templates sitting in its module roots.
+		return [];
+	}
+}
+
 /** The directory holding a file, for running a plugin where it was declared. */
 function dirOf(filePath: string): string {
 	return path.dirname(filePath);
@@ -100,7 +130,10 @@ export function registerViews(wiring: ViewWiring): RegisteredViews {
 	let lastSelected: string | undefined;
 
 	const loadModel = async (): Promise<DependencyModel> => {
-		lastModel = await buildDependencyModel({ log });
+		lastModel = await buildDependencyModel({
+			log,
+			extraGenDirs: await workspaceGenDirs(),
+		});
 		// Drives the view's welcome content, which is the only signposted way
 		// into the Registry for someone who has not found the toolbar.
 		void vscode.commands.executeCommand(

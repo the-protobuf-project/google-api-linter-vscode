@@ -269,6 +269,32 @@ describe("scanModuleCache", () => {
  * ------------------------------------------------------------------ */
 
 describe("buildDependencyModel", () => {
+	test("finds a template that does not sit beside a buf.yaml", async () => {
+		// The layout this exists for: modules under proto/, the template at the
+		// repository root. Looking only in module roots found nothing, which is
+		// why Generate came up empty on workspaces that plainly had one.
+		const repo = makeTree({
+			"buf.gen.yaml":
+				"version: v2\nplugins:\n  - remote: buf.build/protocolbuffers/plugins/go\n    out: gen/go\n",
+			"proto/buf.yaml": "version: v2\n",
+		});
+		const moduleRoot = path.join(repo, "proto");
+
+		const without = await buildDependencyModel({
+			cacheRoot: makeCache({}).root,
+			graph: graphOf([moduleAt(moduleRoot, [])]),
+		});
+		expect(without.gen).toHaveLength(0);
+
+		const withRoot = await buildDependencyModel({
+			cacheRoot: makeCache({}).root,
+			graph: graphOf([moduleAt(moduleRoot, [])]),
+			extraGenDirs: [repo],
+		});
+		expect(withRoot.gen).toHaveLength(1);
+		expect(withRoot.gen[0]?.plugins[0]?.out).toBe("gen/go");
+	});
+
 	test("marks a cached dependency declared and counts its protos", async () => {
 		const cache = makeCache({
 			"buf.build/googleapis/googleapis": {

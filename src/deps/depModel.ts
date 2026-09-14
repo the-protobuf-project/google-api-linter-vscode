@@ -317,6 +317,15 @@ export interface DependencyModelOptions {
 	readonly graph?: ModuleGraph;
 	/** Buf module cache root. Defaults to `getBufModuleCacheRoot()`. */
 	readonly cacheRoot?: string;
+	/**
+	 * Extra directories to look for `buf.gen.yaml` in, beyond the module roots.
+	 *
+	 * A template does not have to live next to a `buf.yaml`: repositories
+	 * routinely keep one at the root while the modules sit under `proto/`, and
+	 * looking only where a module was found misses every one of them. The host
+	 * passes the whole workspace here; a test passes nothing.
+	 */
+	readonly extraGenDirs?: readonly string[];
 	/** Aborts between filesystem batches when it returns true. */
 	readonly isCancelled?: () => boolean;
 	readonly log?: Logger;
@@ -437,10 +446,13 @@ export async function buildDependencyModel(
 			declaredNames,
 			options,
 		);
-		const gen: GenConfig[] = await findGenConfigs(genDirs, {
-			isCancelled: options.isCancelled,
-			log: options.log,
-		});
+		const gen: GenConfig[] = await findGenConfigs(
+			[...genDirs, ...(options.extraGenDirs ?? [])],
+			{
+				isCancelled: options.isCancelled,
+				log: options.log,
+			},
+		);
 
 		options.log?.appendLine(
 			`[deps] ${modules.length} module(s), ${undeclared.length} undeclared cached module(s), ${gen.length} buf.gen.yaml`,
