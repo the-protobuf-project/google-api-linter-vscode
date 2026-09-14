@@ -1,6 +1,6 @@
 {
 	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-	"name": "Protocol Buffer 3 (Google API Linter)",
+	"name": "Protocol Buffer 3 (Protobuf AIP Linter)",
 	"scopeName": "source.proto",
 	"fileTypes": ["proto"],
 

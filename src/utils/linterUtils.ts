@@ -121,19 +121,16 @@ function getProtobufRootProtoPath(filePath: string): string | null {
 }
 
 /**
- * Builds command-line arguments for the api-linter binary.
- * @param filePath - Path to the proto file to lint
- * @param options - Linter configuration options
- * @returns Object containing args array, working directory, and file name
+ * Builds every argument an api-linter invocation needs except the file names:
+ * config, proto paths, rule toggles, output format. All of these are derived from
+ * the file's directory, so any two files sharing a directory share this argv.
  */
-export const buildLinterArgs = (
+const buildSharedLinterArgs = (
 	filePath: string,
 	options: LinterOptions,
 ): {
 	args: string[];
 	workingDir: string;
-	fileName: string;
-	/** Temp config from resolveConfigToArrayFormat — unlink after spawn completes */
 	tempConfigPath: string | null;
 } => {
 	const args: string[] = [];
@@ -152,7 +149,6 @@ export const buildLinterArgs = (
 		? filePath
 		: path.resolve(filePath);
 	const workingDir = path.dirname(absolutePath);
-	const fileName = path.basename(absolutePath);
 
 	args.push("--proto-path", workingDir);
 
@@ -208,10 +204,153 @@ export const buildLinterArgs = (
 	}
 
 	args.push("--output-format", "json");
-	args.push(fileName);
 
+	return { args, workingDir, tempConfigPath };
+};
+
+/**
+ * Builds command-line arguments for the api-linter binary.
+ * @param filePath - Path to the proto file to lint
+ * @param options - Linter configuration options
+ * @returns Object containing args array, working directory, and file name
+ */
+export const buildLinterArgs = (
+	filePath: string,
+	options: LinterOptions,
+): {
+	args: string[];
+	workingDir: string;
+	fileName: string;
+	/** Temp config from resolveConfigToArrayFormat — unlink after spawn completes */
+	tempConfigPath: string | null;
+} => {
+	const { args, workingDir, tempConfigPath } = buildSharedLinterArgs(
+		filePath,
+		options,
+	);
+	const fileName = path.basename(path.resolve(filePath));
+	args.push(fileName);
 	return { args, workingDir, fileName, tempConfigPath };
 };
+
+/**
+ * Largest number of file arguments in one api-linter invocation.
+ * Paired with MAX_BATCH_ARGV_CHARS to stay well clear of ARG_MAX.
+ */
+export const MAX_BATCH_FILES = 400;
+
+/** Largest combined argv length, in characters, for one api-linter invocation. */
+export const MAX_BATCH_ARGV_CHARS = 100_000;
+
+/** One api-linter invocation covering many files that share a cwd and proto paths. */
+export interface LinterBatch {
+	/** Working directory for the spawned process; every fileName is relative to it. */
+	workingDir: string;
+	/** Shared flags: --config, --proto-path, rule toggles, --output-format. */
+	baseArgs: string[];
+	/** File arguments, in argv order. */
+	fileNames: string[];
+	/** Absolute path of each entry in fileNames, same order. */
+	filePaths: string[];
+}
+
+/** A complete set of batches plus the temp files that outlive individual batches. */
+export interface LinterBatchPlan {
+	batches: LinterBatch[];
+	/** Shared across batches of the same directory — unlink only once all have run. */
+	tempConfigPaths: string[];
+}
+
+/**
+ * Groups proto files into as few api-linter invocations as possible.
+ *
+ * api-linter resolves each file argument against its --proto-path entries and cwd,
+ * and both of those are derived from the file's own directory, so a directory is the
+ * largest unit whose files can share one argv without changing how any path resolves.
+ *
+ * @param filePaths - Proto files to lint; relative paths are resolved against cwd
+ * @param options - Linter configuration options
+ * @returns Batches to run, and temp configs to dispose once they all have
+ */
+export function buildLinterBatches(
+	filePaths: readonly string[],
+	options: LinterOptions,
+): LinterBatchPlan {
+	const byWorkingDir = new Map<string, string[]>();
+	for (const filePath of filePaths) {
+		const absolute = path.resolve(filePath);
+		const dir = path.dirname(absolute);
+		const group = byWorkingDir.get(dir);
+		if (group) {
+			group.push(absolute);
+		} else {
+			byWorkingDir.set(dir, [absolute]);
+		}
+	}
+
+	const batches: LinterBatch[] = [];
+	const tempConfigPaths: string[] = [];
+
+	for (const group of byWorkingDir.values()) {
+		const shared = buildSharedLinterArgs(group[0], options);
+		if (shared.tempConfigPath) {
+			tempConfigPaths.push(shared.tempConfigPath);
+		}
+		// +1 per argument for the separator the kernel counts alongside each argv entry.
+		const baseChars = shared.args.reduce((sum, arg) => sum + arg.length + 1, 0);
+
+		let fileNames: string[] = [];
+		let batchFilePaths: string[] = [];
+		let chars = baseChars;
+
+		const flush = () => {
+			if (fileNames.length === 0) {
+				return;
+			}
+			batches.push({
+				workingDir: shared.workingDir,
+				baseArgs: shared.args,
+				fileNames,
+				filePaths: batchFilePaths,
+			});
+			fileNames = [];
+			batchFilePaths = [];
+			chars = baseChars;
+		};
+
+		for (const absolute of group) {
+			const fileName = path.basename(absolute);
+			const cost = fileName.length + 1;
+			if (
+				fileNames.length > 0 &&
+				(fileNames.length >= MAX_BATCH_FILES ||
+					chars + cost > MAX_BATCH_ARGV_CHARS)
+			) {
+				flush();
+			}
+			fileNames.push(fileName);
+			batchFilePaths.push(absolute);
+			chars += cost;
+		}
+		flush();
+	}
+
+	return { batches, tempConfigPaths };
+}
+
+/**
+ * Deletes the temp configs a batch plan created. Call once every batch has run.
+ * @param plan - The plan returned by buildLinterBatches
+ */
+export function disposeLinterBatchPlan(plan: LinterBatchPlan): void {
+	for (const tempConfigPath of plan.tempConfigPaths) {
+		try {
+			fs.unlinkSync(tempConfigPath);
+		} catch {
+			// already gone
+		}
+	}
+}
 
 /**
  * Parses JSON output from the api-linter into VS Code diagnostics.
@@ -219,6 +358,29 @@ export const buildLinterArgs = (
  * @param outputChannel - Optional output channel for logging
  * @returns Array of VS Code Diagnostic objects
  */
+/**
+ * Matches `file:line:col: message`, with an optional Go log timestamp prefix.
+ *
+ * Three details are load-bearing, and all three were once wrong in each of the
+ * three copies of this pattern that used to exist -- which is why it now lives
+ * here alone and `linterProvider` imports it.
+ *
+ * - `(?:[A-Za-z]:)?` admits a Windows drive letter. Without it `([^:]+)` stops
+ *   at the colon in `C:\proto\a.proto`, the line never matches, and a Windows
+ *   user sees no syntax errors at all.
+ * - `\r?$` tolerates CRLF. The output is split on "\n", so a CRLF stream leaves
+ *   a carriage return on every line; `$` without the `m` flag then matches only
+ *   the true end of the string, so every line failed.
+ * - The message is non-greedy so the optional `\r` is left for the anchor
+ *   rather than swallowed into the text.
+ *
+ * Example: `proto/library.proto:12:4: syntax error: unexpected identifier`
+ * Example: `2026/02/20 14:49:31 proto/library.proto:12:4: syntax error: ...`
+ * Example: `C:\src\proto\library.proto:12:4: syntax error`
+ */
+export const SYNTAX_ERROR_REGEX =
+	/^(?:\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2} )?((?:[A-Za-z]:)?[^:]+):(\d+):(\d+):\s*(.*?)\r?$/;
+
 export const parseLinterOutput = (
 	output: string,
 	outputChannel?: vscode.OutputChannel,
@@ -272,8 +434,21 @@ export const parseLinterOutput = (
 			}
 
 			result.problems.forEach((problem) => {
-				const diagnostic = createDiagnosticFromProblem(problem);
-				diagnostics.push(diagnostic);
+				// Guarded per problem. A findings array is now one batched run over
+				// a whole module, so letting a single malformed entry throw would
+				// unwind the loop, discard every finding already collected, and
+				// hand the output to the text parser -- which matches nothing in
+				// JSON. The user would see no diagnostics at all for thousands of
+				// files, with nothing to say why.
+				try {
+					diagnostics.push(createDiagnosticFromProblem(problem));
+				} catch (error) {
+					outputChannel?.appendLine(
+						`Skipping a malformed finding${
+							result.file_path ? ` in ${result.file_path}` : ""
+						}: ${error}`,
+					);
+				}
 			});
 		});
 	} catch (error) {
@@ -300,11 +475,7 @@ export const parseGenericOutput = (
 	const diagnostics: vscode.Diagnostic[] = [];
 	const lines = output.split("\n");
 
-	// Regex for "file:line:col: message", with optional Go log timestamp prefix
-	// Example: "proto/library.proto:12:4: syntax error: unexpected identifier"
-	// Example: "2026/02/20 14:49:31 proto/library.proto:12:4: syntax error: ..."
-	const errorRegex =
-		/^(?:\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2} )?([^:]+):(\d+):(\d+):\s*(.*)$/;
+	const errorRegex = SYNTAX_ERROR_REGEX;
 
 	for (const line of lines) {
 		const match = line.match(errorRegex);
@@ -312,16 +483,20 @@ export const parseGenericOutput = (
 			const [, , lineStr, colStr, message] = match;
 
 			const lineNum = parseInt(lineStr, 10) - 1; // 1-based to 0-based
-			const colNum = parseInt(colStr, 10) - 1; // 1-based to 0-based
+			// Clamped, not rejected. Some protoc builds report column 0 to mean
+			// "the whole line"; subtracting one gave -1 and the guard below then
+			// dropped the report entirely, losing a real syntax error. The other
+			// two parsers in this pipeline already clamp.
+			const colNum = Math.max(0, parseInt(colStr, 10) - 1);
 
-			if (lineNum >= 0 && colNum >= 0) {
+			if (lineNum >= 0) {
 				const range = new vscode.Range(lineNum, colNum, lineNum, 200); // 200 is arbitrary end char
 				const diagnostic = new vscode.Diagnostic(
 					range,
 					message.trim(),
 					vscode.DiagnosticSeverity.Error,
 				);
-				diagnostic.source = "google-api-linter (syntax)";
+				diagnostic.source = "protobuf-aip-linter (syntax)";
 				diagnostics.push(diagnostic);
 			}
 		}
@@ -347,8 +522,7 @@ export function parseSyntaxErrorsForFile(
 ): vscode.Diagnostic[] {
 	const diagnostics: vscode.Diagnostic[] = [];
 	const lines = output.split("\n");
-	const errorRegex =
-		/^(?:\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2} )?([^:]+):(\d+):(\d+):\s*(.*)$/;
+	const errorRegex = SYNTAX_ERROR_REGEX;
 	const normalizedCurrent = path.normalize(currentFileAbsolutePath);
 
 	for (const line of lines) {
@@ -370,6 +544,14 @@ export function parseSyntaxErrorsForFile(
 		}
 
 		const lineNum = parseInt(lineStr, 10) - 1;
+		// A reported line of 0 converts to -1, which `vscode.Position` rejects by
+		// throwing. This runs inside the `close` handler of the syntax check, so
+		// the throw escaped into an event callback and left that promise for ever
+		// unsettled -- the check simply never returned. The by-file parser in
+		// linterProvider already skips such a line.
+		if (lineNum < 0) {
+			continue;
+		}
 		const colNum = Math.max(0, parseInt(colStr, 10) - 1);
 		const range = new vscode.Range(
 			lineNum,
@@ -382,7 +564,7 @@ export function parseSyntaxErrorsForFile(
 			message,
 			vscode.DiagnosticSeverity.Error,
 		);
-		diagnostic.source = "google-api-linter (syntax)";
+		diagnostic.source = "protobuf-aip-linter (syntax)";
 		diagnostics.push(diagnostic);
 	}
 	return diagnostics;
@@ -458,7 +640,7 @@ const createDiagnosticFromProblem = (
 		vscode.DiagnosticSeverity.Error,
 	);
 
-	diagnostic.source = "google-api-linter";
+	diagnostic.source = "protobuf-aip-linter";
 
 	// Use configurable documentation endpoint
 	const config = vscode.workspace.getConfiguration("gapi");

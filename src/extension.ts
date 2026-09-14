@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { registerAnnotationSupport } from "./annotations/support";
 import { ProtoCodeActionProvider } from "./codeActionProvider";
 import {
 	createConfigCommand,
@@ -20,28 +21,87 @@ import {
 	OUTPUT_CHANNEL_NAME,
 } from "./constants";
 import { ProtoDefinitionProvider } from "./definitionProvider";
+import { currentEnvironment, showSetup } from "./doctor/setupPanel";
+import { runSetup } from "./doctor/setupWizard";
 import { ProtoDocumentLinkProvider } from "./documentLinkProvider";
 import { ProtoDocumentSymbolProvider } from "./documentSymbolProvider";
 import { ProtoFoldingRangeProvider } from "./foldingProvider";
 import { getFormatEdits, registerFormatProvider } from "./formatProvider";
 import { ApiLinterHoverProvider } from "./hoverProvider";
+import { createProtoIndex } from "./index";
+import type { IndexBudget, ProtoIndex } from "./index/types";
 import { ApiLinterProvider } from "./linterProvider";
 import { registerProtoView } from "./protoView";
+import { registerQuickFixes } from "./quickfix/provider";
 import { ProtoReferenceProvider } from "./referenceProvider";
 import { ProtoRenameProvider } from "./renameProvider";
 import { registerReportIssueCommand } from "./reportIssue";
 import { ProtoSignatureHelpProvider } from "./signatureHelpProvider";
-import { registerStatusBar } from "./statusBar";
+import { registerStatusBar, updateToolchainStatus } from "./statusBar";
 import { ProtoSymbolHoverProvider } from "./symbolHoverProvider";
 import { isProtoFile } from "./utils/fileUtils";
-import { invalidateProtoImportRootsCache } from "./utils/protoImportRoots";
+import {
+	getBufModuleCacheRoot,
+	getModuleGraph,
+	invalidateModuleGraphCache,
+} from "./utils/moduleGraph";
+import {
+	getGapiAnnotationRoots,
+	invalidateProtoImportRootsCache,
+} from "./utils/protoImportRoots";
+import { registerViews } from "./views";
 import { ProtoWorkspaceSymbolProvider } from "./workspaceSymbolProvider";
 
 let diagnosticCollection: vscode.DiagnosticCollection;
 let linterProvider: ApiLinterProvider;
+let protoIndex: ProtoIndex | undefined;
+
+/** Reads the index budget from settings, so a big monorepo can raise it. */
+function readIndexBudget(): IndexBudget {
+	const config = vscode.workspace.getConfiguration("gapi");
+	return {
+		maxMemoryMB: config.get<number>("index.maxMemoryMB", 150),
+		maxFiles: config.get<number>("index.maxFiles", 20000),
+	};
+}
 
 /**
- * Activates the Google API Linter extension.
+ * Directories holding the annotation vocabularies (`mcp.v1`, `buf.validate`, …).
+ * These live in the buf module cache rather than the workspace, so they have to
+ * be handed to the index explicitly.
+ */
+async function annotationRootsFor(
+	outputChannel: vscode.OutputChannel,
+): Promise<string[]> {
+	const roots: string[] = [];
+	try {
+		const graph = await getModuleGraph(outputChannel);
+		// Only the buf-cache entries. The workspace's own module roots are
+		// already covered by the index walk, and scanning them twice would
+		// double the cost for nothing.
+		roots.push(
+			...graph
+				.allProtoPaths()
+				.filter((p) => p.startsWith(getBufModuleCacheRoot())),
+		);
+	} catch {
+		// A missing or broken module graph must not cost the well-known roots.
+	}
+	try {
+		// `~/.gapi` is outside the walk for the same reason the buf cache is,
+		// and it is where the extension puts googleapis for workspaces that do
+		// not use buf at all. Without it those workspaces resolve
+		// `google.api.*` for navigation but report zero annotations, so the
+		// Annotations section never appears.
+		roots.push(...(await getGapiAnnotationRoots()));
+	} catch {
+		// ignore
+	}
+	return [...new Set(roots)];
+}
+
+/**
+ * Activates the Protobuf AIP Linter extension.
  * Sets up providers, commands, and document listeners.
  * @param context - The extension context provided by VS Code
  */
@@ -61,27 +121,57 @@ export async function activate(context: vscode.ExtensionContext) {
 			{ scheme: "file", language: "proto3" },
 			{ scheme: "file", language: "protobuf" },
 		];
-		const definitionProvider = new ProtoDefinitionProvider();
+
+		// The index is created now but built in the background: activation must not
+		// wait on a workspace walk. Every provider takes it as an optional trailing
+		// argument and degrades to file-local behaviour until the build lands.
+		const indexEnabled = vscode.workspace
+			.getConfiguration("gapi")
+			.get<boolean>("index.enabled", true);
+		protoIndex = indexEnabled
+			? createProtoIndex({
+					budget: readIndexBudget(),
+					annotationRoots: await annotationRootsFor(outputChannel),
+					moduleRootOf: undefined,
+					onDegrade: (tier, reason) => {
+						outputChannel.appendLine(`[index] ${tier}: ${reason}`);
+						// A ceiling the user can act on is worth interrupting for; a
+						// silent stall is exactly the failure this replaces.
+						void vscode.window.showWarningMessage(
+							`Proto index reduced to "${tier}": ${reason}`,
+						);
+					},
+				})
+			: undefined;
+		const index = protoIndex;
+
+		const definitionProvider = new ProtoDefinitionProvider(index);
 		context.subscriptions.push(
 			diagnosticCollection,
 			outputChannel,
 			registerHoverProvider(diagnosticCollection),
 			registerSymbolHoverProvider(protoDocSelector),
 			registerDefinitionProvider(definitionProvider),
-			registerReferenceProvider(protoDocSelector),
-			registerRenameProvider(protoDocSelector),
+			registerReferenceProvider(protoDocSelector, index),
+			registerRenameProvider(protoDocSelector, index),
 			registerCodeActionProvider(protoDocSelector),
+			// Fixes derived from what the linter reported, rather than from
+			// patterns guessed at here. Registered alongside the existing
+			// provider: they offer different things and VS Code merges them.
+			...registerQuickFixes(protoDocSelector),
 			registerDocumentLinkProvider(protoDocSelector),
 			registerFormatProvider(protoDocSelector),
 			registerDocumentSymbolProvider(protoDocSelector),
-			registerWorkspaceSymbolProvider(),
+			registerWorkspaceSymbolProvider(index),
 			registerFoldingProvider(protoDocSelector),
-			registerCompletionProvider(protoDocSelector),
+			registerCompletionProvider(protoDocSelector, index),
 			registerSignatureHelpProvider(protoDocSelector),
 		);
 		context.subscriptions.push(createLintCurrentFileCommand(linterProvider));
 		context.subscriptions.push(createLintWorkspaceCommand(linterProvider));
-		context.subscriptions.push(createFormatAllProtosCommand());
+		context.subscriptions.push(
+			createFormatAllProtosCommand(await getModuleGraph(outputChannel)),
+		);
 		context.subscriptions.push(createLintFileFromTreeCommand(linterProvider));
 		context.subscriptions.push(createFormatFileFromTreeCommand());
 		context.subscriptions.push(createConfigCommand());
@@ -93,17 +183,140 @@ export async function activate(context: vscode.ExtensionContext) {
 		context.subscriptions.push(createInitWorkspaceCommand());
 		context.subscriptions.push(registerReportIssueCommand(context));
 
+		// Problems, Details and Dependencies. Registered before the Structure
+		// tree so its selection handler has somewhere to send the selection.
+		const views = registerViews({
+			context,
+			diagnostics: diagnosticCollection,
+			index,
+			log: outputChannel,
+			runtime: {
+				googleapis: () => binaryManager.getGoogleapisCommit(),
+				protobuf: () => binaryManager.getProtobufCommit(),
+			},
+		});
+
 		registerProtoView(
 			context,
 			diagnosticCollection,
-			() => binaryManager.getBinaryVersion(),
-			() => binaryManager.getGoogleapisCommit(),
-			() => binaryManager.getProtobufCommit(),
 			(typeName: string, contextUri: vscode.Uri) =>
 				definitionProvider.resolveTypeToLocation(typeName, contextUri),
+			index,
+			vscode.workspace
+				.getConfiguration("gapi")
+				.get<number>("protoView.maxFiles", 5000),
+			views.showSymbol,
 		);
 
+		// Findings drive three of the four views, so one subscription keeps the
+		// problem tree, the detail payload and the view badges in step.
+		context.subscriptions.push(
+			vscode.languages.onDidChangeDiagnostics(() => {
+				views.refreshProblems();
+			}),
+		);
+		views.refreshProblems();
+
+		// Highlighting, hover, completion and diagnostics for every custom
+		// annotation, derived from the extend blocks the index found.
+		registerAnnotationSupport(context, index);
+
+		// ApiLinterProvider owns a diagnostic collection, a debounce timer and
+		// possibly a live buf process.
+		context.subscriptions.push({ dispose: () => linterProvider.dispose() });
+
+		if (index) {
+			context.subscriptions.push({ dispose: () => index.dispose() });
+			void buildIndex(index, outputChannel);
+
+			// One watcher keeps the index current. Re-parsing a single file costs
+			// well under a millisecond, so there is never a full rebuild here.
+			const protoWatcher =
+				vscode.workspace.createFileSystemWatcher("**/*.proto");
+			protoWatcher.onDidChange((uri) => void index.update(uri.fsPath));
+			protoWatcher.onDidCreate((uri) => void index.update(uri.fsPath));
+			protoWatcher.onDidDelete((uri) => index.remove(uri.fsPath));
+			context.subscriptions.push(protoWatcher);
+		}
+
+		// Lint the workspace once on open, so the Problems view describes the
+		// project rather than only the files the reader happens to touch. Not
+		// awaited: activation must not wait on a binary download or a lint of
+		// a large tree, and the findings land whenever they land.
+		if (
+			vscode.workspace
+				.getConfiguration("gapi")
+				.get<boolean>("lintOnStartup", true)
+		) {
+			void linterProvider.lintWorkspace({ silent: true }).catch((error) => {
+				// A failed startup lint is a log line, not a dialog: the reader
+				// did not ask for this run and cannot act on it mid-open.
+				outputChannel.appendLine(
+					`[lint] startup lint failed: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				);
+			});
+		}
+
 		registerStatusBar(context, diagnosticCollection);
+
+		context.subscriptions.push(
+			vscode.commands.registerCommand(
+				"googleApiLinter.checkSetup",
+				async () => {
+					updateToolchainStatus(await showSetup());
+				},
+			),
+			vscode.commands.registerCommand(
+				"googleApiLinter.setupToolchain",
+				async () => {
+					updateToolchainStatus(await runSetup(binaryManager, outputChannel));
+				},
+			),
+			vscode.commands.registerCommand(
+				"googleApiLinter.setupToolchainForce",
+				async () => {
+					updateToolchainStatus(
+						await runSetup(binaryManager, outputChannel, { force: true }),
+					);
+				},
+			),
+		);
+
+		// Inspect the toolchain in the background and fill in the status bar.
+		// Not awaited, and not fatal: a probe that cannot run leaves the item
+		// saying what it already said rather than blocking activation.
+		void currentEnvironment()
+			.then(async (report) => {
+				updateToolchainStatus(report);
+				const offer = vscode.workspace
+					.getConfiguration("gapi")
+					.get<boolean>("checkSetupOnStartup", true);
+				// Only speak up when something required is actually absent. A
+				// working machine should never see this.
+				if (offer && !report.ready) {
+					const missing = report.dependencies.filter(
+						(d) => d.requirement === "required" && d.state !== "ok",
+					);
+					const choice = await vscode.window.showWarningMessage(
+						`Proto tooling is incomplete: ${missing
+							.map((d) => d.label)
+							.join(", ")}.`,
+						"Install",
+						"Details",
+						"Not now",
+					);
+					if (choice === "Install") {
+						updateToolchainStatus(await runSetup(binaryManager, outputChannel));
+					} else if (choice === "Details") {
+						updateToolchainStatus(await showSetup());
+					}
+				}
+			})
+			.catch((error) => {
+				outputChannel.appendLine(`[setup] check failed: ${error}`);
+			});
 
 		const configDiagnosticCollection =
 			vscode.languages.createDiagnosticCollection(
@@ -116,6 +329,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			vscode.workspace.onDidChangeConfiguration((e) => {
 				if (e.affectsConfiguration("gapi")) {
 					invalidateProtoImportRootsCache();
+					invalidateModuleGraphCache();
 					// Dynamically update listeners when config changes
 					documentListeners.dispose();
 					documentListeners = registerDocumentListeners(
@@ -184,10 +398,11 @@ function registerDefinitionProvider(
  */
 function registerReferenceProvider(
 	selector: vscode.DocumentSelector,
+	index?: ProtoIndex,
 ): vscode.Disposable {
 	return vscode.languages.registerReferenceProvider(
 		selector,
-		new ProtoReferenceProvider(),
+		new ProtoReferenceProvider(index),
 	);
 }
 
@@ -196,10 +411,11 @@ function registerReferenceProvider(
  */
 function registerRenameProvider(
 	selector: vscode.DocumentSelector,
+	index?: ProtoIndex,
 ): vscode.Disposable {
 	return vscode.languages.registerRenameProvider(
 		selector,
-		new ProtoRenameProvider(),
+		new ProtoRenameProvider(index),
 	);
 }
 
@@ -245,9 +461,11 @@ function registerDocumentSymbolProvider(
 /**
  * Registers workspace symbol search (Go to Symbol in Workspace).
  */
-function registerWorkspaceSymbolProvider(): vscode.Disposable {
+function registerWorkspaceSymbolProvider(
+	index?: ProtoIndex,
+): vscode.Disposable {
 	return vscode.languages.registerWorkspaceSymbolProvider(
-		new ProtoWorkspaceSymbolProvider(),
+		new ProtoWorkspaceSymbolProvider(index),
 	);
 }
 
@@ -270,8 +488,9 @@ function registerFoldingProvider(
  */
 function registerCompletionProvider(
 	selector: vscode.DocumentSelector,
+	index?: ProtoIndex,
 ): vscode.Disposable {
-	const completionProvider = new ProtoCompletionProvider();
+	const completionProvider = new ProtoCompletionProvider(index);
 	return vscode.languages.registerCompletionItemProvider(
 		selector,
 		completionProvider,
@@ -355,6 +574,17 @@ function registerDocumentListeners(
 		);
 	}
 
+	// Per-file lint no longer shells out to buf, so syntax errors come only from
+	// this workspace pass. It is debounced and self-coalescing, so firing it on
+	// every save collapses a burst into a single `buf build`.
+	disposables.push(
+		vscode.workspace.onDidSaveTextDocument((doc) => {
+			if (isProtoFile(doc.fileName)) {
+				linterProvider.scheduleWorkspaceSyntaxCheck();
+			}
+		}),
+	);
+
 	// Lint on open
 	disposables.push(
 		vscode.workspace.onDidOpenTextDocument((doc) => {
@@ -399,11 +629,41 @@ export function deactivate() {
 		diagnosticCollection.dispose();
 	}
 
-	// Clean up any remaining buf export temp directories
+	// Nothing to clean up for buf any more: dependencies resolve by reading
+	// buf.lock and pointing at the module cache, so no temp tree is ever created.
+	protoIndex?.dispose();
+	protoIndex = undefined;
+}
+
+/**
+ * Builds the index in the background and reports the outcome.
+ *
+ * Kept off the activation path deliberately: a cold walk of a large workspace
+ * is measured in hundreds of milliseconds, and blocking activation on it would
+ * trade one stall for another.
+ */
+async function buildIndex(
+	index: ProtoIndex,
+	outputChannel: vscode.OutputChannel,
+): Promise<void> {
+	const roots = (vscode.workspace.workspaceFolders ?? []).map(
+		(f) => f.uri.fsPath,
+	);
+	if (roots.length === 0) {
+		return;
+	}
 	try {
-		const { cleanupAllBufTmpDirs } = require("./utils/bufConfigReader");
-		cleanupAllBufTmpDirs();
-	} catch (e) {
-		console.error("Error during deactivation cleanup:", e);
+		const stats = await index.build(roots);
+		outputChannel.appendLine(
+			`[index] ${stats.tier}: ${stats.symbolCount} symbol(s) in ${stats.fileCount} file(s), ` +
+				`${stats.annotationCount} annotation(s), ${stats.buildMs}ms`,
+		);
+		if (stats.tier === "onDemand") {
+			outputChannel.appendLine(
+				"[index] workspace-wide features are off; per-file features still work",
+			);
+		}
+	} catch (error) {
+		outputChannel.appendLine(`[index] build failed: ${error}`);
 	}
 }

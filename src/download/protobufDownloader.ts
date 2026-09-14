@@ -133,7 +133,7 @@ export class ProtobufDownloader {
 				https
 					.get(
 						currentUrl,
-						{ headers: { "User-Agent": "vscode-google-api-linter" } },
+						{ headers: { "User-Agent": "vscode-protobuf-aip-linter" } },
 						(response) => {
 							if (
 								response.statusCode === 301 ||
@@ -173,7 +173,7 @@ export class ProtobufDownloader {
 					url,
 					{
 						headers: {
-							"User-Agent": "vscode-google-api-linter",
+							"User-Agent": "vscode-protobuf-aip-linter",
 						},
 					},
 					(response) => {

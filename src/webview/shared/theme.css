@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+/*
+ * Tailwind's own palette is never used in a webview.
+ *
+ * A webview inherits the user's colour theme through `--vscode-*` custom
+ * properties that the host injects on `<html>`. Every token below forwards one
+ * of those, so `bg-surface` or `text-danger` resolves to whatever theme the
+ * reader actually has — including ones neither of us has seen. Hardcoding a hex
+ * anywhere in a component is the bug this file exists to prevent: it survives
+ * Dark+ and is unreadable in Light+, or vice versa.
+ *
+ * `--vscode-*` variables carry no fallback of their own, so each is given one
+ * here; that keeps the panel legible if it is ever opened outside the host
+ * (a browser, a screenshot harness, a test).
+ */
+@theme {
+	/* --- surfaces --- */
+	--color-surface: var(--vscode-sideBar-background, #1f1f1f);
+	--color-editor: var(--vscode-editor-background, #1f1f1f);
+	--color-hover: var(--vscode-list-hoverBackground, #2a2d2e);
+	--color-active: var(--vscode-list-activeSelectionBackground, #04395e);
+	--color-active-fg: var(--vscode-list-activeSelectionForeground, #ffffff);
+
+	/* --- text --- */
+	--color-fg: var(--vscode-foreground, #cccccc);
+	--color-muted: var(--vscode-descriptionForeground, #9d9d9d);
+	--color-link: var(--vscode-textLink-foreground, #4daafc);
+	--color-link-active: var(--vscode-textLink-activeForeground, #4daafc);
+
+	/* --- lines --- */
+	--color-line: var(--vscode-panel-border, #2b2b2b);
+	--color-focus: var(--vscode-focusBorder, #0078d4);
+
+	/* --- severity. Separate from the accent on purpose: these encode state,
+	       and must not drift when the accent changes. --- */
+	--color-danger: var(--vscode-editorError-foreground, #f14c4c);
+	--color-warn: var(--vscode-editorWarning-foreground, #cca700);
+	--color-info: var(--vscode-editorInfo-foreground, #3794ff);
+	--color-ok: var(--vscode-charts-green, #89d185);
+
+	/* --- controls --- */
+	--color-btn: var(--vscode-button-background, #0078d4);
+	--color-btn-fg: var(--vscode-button-foreground, #ffffff);
+	--color-btn-hover: var(--vscode-button-hoverBackground, #026ec1);
+	--color-btn-2: var(--vscode-button-secondaryBackground, #313131);
+	--color-btn-2-fg: var(--vscode-button-secondaryForeground, #cccccc);
+	--color-input: var(--vscode-input-background, #313131);
+	--color-input-fg: var(--vscode-input-foreground, #cccccc);
+	--color-input-line: var(--vscode-input-border, #3c3c3c);
+	--color-badge: var(--vscode-badge-background, #4d4d4d);
+	--color-badge-fg: var(--vscode-badge-foreground, #ffffff);
+
+	/* --- symbol icons, so a field reads as a field in either theme --- */
+	--color-sym-class: var(--vscode-symbolIcon-classForeground, #ee9d28);
+	--color-sym-method: var(--vscode-symbolIcon-methodForeground, #b180d7);
+	--color-sym-field: var(--vscode-symbolIcon-fieldForeground, #75beff);
+	--color-sym-iface: var(--vscode-symbolIcon-interfaceForeground, #75beff);
+	--color-sym-enum: var(--vscode-symbolIcon-enumeratorForeground, #ee9d28);
+
+	/* --- type. The host sets the family and size the user picked; overriding
+	       either is what makes a webview feel bolted on. --- */
+	--font-sans: var(--vscode-font-family, system-ui, sans-serif);
+	--font-mono: var(--vscode-editor-font-family, ui-monospace, monospace);
+	--text-base: var(--vscode-font-size, 13px);
+
+	/* VS Code's own row metrics, so a list here lines up with a list there. */
+	--spacing-row: 22px;
+}
+
+/*
+ * The host paints the panel background behind this document. A transparent
+ * body borrows it, which is right until the panel is themed differently from
+ * the sidebar — so it is set explicitly.
+ */
+@layer base {
+	html {
+		font-size: var(--vscode-font-size, 13px);
+	}
+
+	body {
+		margin: 0;
+		background: var(--color-surface);
+		color: var(--color-fg);
+		font-family: var(--font-sans);
+		font-size: 1rem;
+		line-height: 1.5;
+		overflow-wrap: break-word;
+	}
+
+	/*
+	 * The host's own focus ring, not Tailwind's. A webview that draws a
+	 * different focus style than the tree above it reads as a foreign object.
+	 */
+	:focus-visible {
+		outline: 1px solid var(--color-focus);
+		outline-offset: -1px;
+	}
+
+	/* Digits that sit in columns must not shift width as values change. */
+	.tnum {
+		font-variant-numeric: tabular-nums;
+	}
+}

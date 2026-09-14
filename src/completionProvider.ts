@@ -1,7 +1,6 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { getProtoPaths } from "./utils/configReader";
-import { findProtoFiles } from "./utils/fileUtils";
+import type { IndexedFile, ProtoIndex } from "./index/types";
 
 /** Completion item with type hint (detail) and documentation */
 interface ProtoCompletionSpec {
@@ -14,10 +13,30 @@ interface ProtoCompletionSpec {
 }
 
 /**
+ * Cap on import-path suggestions offered at once. With an empty prefix every
+ * indexed file is a candidate; the list is marked incomplete when it is hit, so
+ * VS Code re-queries as the user narrows the path.
+ */
+const IMPORT_COMPLETION_LIMIT = 200;
+
+/**
  * Provides completions with type hints for Protocol Buffers:
  * messages, services, RPC, field types, options (e.g. google.api.http), and keywords.
+ *
+ * Custom annotation options are deliberately absent: they are derived from the
+ * `extend google.protobuf.*Options` blocks in the index by the annotation
+ * completion provider. Hardcoding them here is what left `mcp.protobuf.*` in
+ * the list two generations after the namespace became `mcp.v1.*`, inserting
+ * option names that do not compile.
  */
 export class ProtoCompletionProvider implements vscode.CompletionItemProvider {
+	/**
+	 * @param index - Symbol index, used for import-path completion. Optional so
+	 *   the extension can wire providers before the index exists; absent means no
+	 *   import-path suggestions.
+	 */
+	constructor(private readonly index?: ProtoIndex) {}
+
 	private readonly topLevelKeywords: ProtoCompletionSpec[] = [
 		{
 			label: "syntax",
@@ -267,73 +286,6 @@ export class ProtoCompletionProvider implements vscode.CompletionItemProvider {
 			insertText: '(google.api.resource) = { type: "$1", pattern: "$2" };',
 			insertTextFormat: 2,
 		},
-		// MCP (grpc-mcp-gateway) options – https://github.com/the-protobuf-project/grpc-mcp-gateway
-		{
-			label: "mcp.protobuf.service",
-			kind: vscode.CompletionItemKind.Property,
-			detail: "option (mcp.protobuf.service)",
-			documentation: new vscode.MarkdownString(
-				"**MCP service option.** App metadata (name, version, description) for the MCP server.\n\n`app: { name, version, description }`",
-			),
-			insertText:
-				'(mcp.protobuf.service) = { app: { name: "$1", version: "$2", description: "$3" } };',
-			insertTextFormat: 2,
-		},
-		{
-			label: "mcp.protobuf.tool",
-			kind: vscode.CompletionItemKind.Property,
-			detail: "option (mcp.protobuf.tool)",
-			documentation:
-				"MCP tool option: override auto-generated tool name or description on an RPC.",
-			insertText: '(mcp.protobuf.tool) = { description: "$1" };',
-			insertTextFormat: 2,
-		},
-		{
-			label: "mcp.protobuf.prompt",
-			kind: vscode.CompletionItemKind.Property,
-			detail: "option (mcp.protobuf.prompt)",
-			documentation:
-				"MCP prompt template on RPC. `name`, `description`, `schema` (proto message for prompt args).",
-			insertText:
-				'(mcp.protobuf.prompt) = { name: "$1", description: "$2", schema: "$3" };',
-			insertTextFormat: 2,
-		},
-		{
-			label: "mcp.protobuf.elicitation",
-			kind: vscode.CompletionItemKind.Property,
-			detail: "option (mcp.protobuf.elicitation)",
-			documentation:
-				"MCP confirmation dialog before RPC runs. `message`, `schema` (proto for confirmation).",
-			insertText:
-				'(mcp.protobuf.elicitation) = { message: "$1", schema: "$2" };',
-			insertTextFormat: 2,
-		},
-		{
-			label: "mcp.protobuf.field",
-			kind: vscode.CompletionItemKind.Property,
-			detail: "(mcp.protobuf.field)",
-			documentation:
-				"MCP field option: JSON Schema metadata (description, examples, format) for tool inputSchema.",
-			insertText:
-				'(mcp.protobuf.field) = { description: "$1", examples: "$2", format: "$3" }',
-			insertTextFormat: 2,
-		},
-		{
-			label: "mcp.protobuf.enum",
-			kind: vscode.CompletionItemKind.Property,
-			detail: "option (mcp.protobuf.enum)",
-			documentation: "MCP enum-level description.",
-			insertText: '(mcp.protobuf.enum) = { description: "$1" };',
-			insertTextFormat: 2,
-		},
-		{
-			label: "mcp.protobuf.enum_value",
-			kind: vscode.CompletionItemKind.Property,
-			detail: "(mcp.protobuf.enum_value)",
-			documentation: "MCP description on an enum value.",
-			insertText: '(mcp.protobuf.enum_value) = { description: "$1" }',
-			insertTextFormat: 2,
-		},
 	];
 
 	private readonly httpOptionFields: ProtoCompletionSpec[] = [
@@ -388,13 +340,16 @@ export class ProtoCompletionProvider implements vscode.CompletionItemProvider {
 			.text.substring(0, position.character);
 		const context = this.inferContext(document, position);
 
-		const importPathItems = await this.getImportPathCompletions(
+		const importPathItems = this.getImportPathCompletions(
 			document,
 			position,
 			linePrefix,
 		);
 		if (importPathItems.length > 0) {
-			return new vscode.CompletionList(importPathItems, false);
+			return new vscode.CompletionList(
+				importPathItems,
+				importPathItems.length >= IMPORT_COMPLETION_LIMIT,
+			);
 		}
 
 		const specs = this.getCompletionsForContext(context, linePrefix);
@@ -402,56 +357,70 @@ export class ProtoCompletionProvider implements vscode.CompletionItemProvider {
 		return new vscode.CompletionList(items, false);
 	}
 
-	/** When cursor is inside import "...", suggest .proto paths from workspace and configured proto_paths. */
-	private async getImportPathCompletions(
+	/**
+	 * When the cursor is inside `import "…"`, suggests the import paths of files
+	 * the index knows about.
+	 *
+	 * Each file yields exactly one path, relative to its own module root — the
+	 * only root an import path is valid against. The previous implementation
+	 * called `findProtoFiles()` and `getProtoPaths()` on every keystroke and then
+	 * cross-produced 9,280 files against every root, building a completion item
+	 * per pairing before filtering. Here the typed prefix filters plain strings,
+	 * and items are built only for the survivors.
+	 */
+	private getImportPathCompletions(
 		document: vscode.TextDocument,
 		_position: vscode.Position,
 		linePrefix: string,
-	): Promise<vscode.CompletionItem[]> {
+	): vscode.CompletionItem[] {
 		const importMatch = linePrefix.match(
 			/import\s*(?:public\s+)?["']([^"']*)$/,
 		);
 		if (!importMatch) {
 			return [];
 		}
-
-		const pathPrefix = importMatch[1];
-		const docDir = path.dirname(document.uri.fsPath);
-		const protoUris = await findProtoFiles();
-		const protoPathDirs = await getProtoPaths();
-		const workspaceRoots = (vscode.workspace.workspaceFolders ?? []).map(
-			(f) => f.uri.fsPath,
-		);
-		const allRoots = [
-			...new Set([docDir, ...protoPathDirs, ...workspaceRoots]),
-		];
-
-		const pathToLabel = new Map<string, string>();
-		for (const uri of protoUris) {
-			const fsPath = uri.fsPath;
-			for (const root of allRoots) {
-				if (!fsPath.startsWith(root)) {
-					continue;
-				}
-				const rel = path.relative(root, fsPath).replace(/\\/g, "/");
-				if (rel.startsWith("..")) {
-					continue;
-				}
-				if (!rel.endsWith(".proto")) {
-					continue;
-				}
-				const existing = pathToLabel.get(rel);
-				if (existing === undefined || rel.length < existing.length) {
-					pathToLabel.set(rel, rel);
-				}
-			}
+		const index = this.workspaceIndex();
+		if (!index) {
+			// No workspace index: there is nothing to suggest from the current file
+			// alone, and scanning the workspace per keystroke is the bug being removed.
+			return [];
 		}
 
-		const items: vscode.CompletionItem[] = [];
-		for (const rel of pathToLabel.keys()) {
-			if (pathPrefix && !rel.startsWith(pathPrefix)) {
+		const pathPrefix = importMatch[1];
+		const files = index.files();
+		const rootSet = new Set<string>(
+			(vscode.workspace.workspaceFolders ?? []).map((f) =>
+				path.resolve(f.uri.fsPath),
+			),
+		);
+		for (const file of files) {
+			if (file.moduleRoot) {
+				rootSet.add(path.resolve(file.moduleRoot));
+			}
+		}
+		const roots = [...rootSet];
+
+		const currentPath = document.uri.fsPath;
+		const matches: string[] = [];
+		const seen = new Set<string>();
+		for (const file of files) {
+			if (file.path === currentPath) {
 				continue;
 			}
+			const rel = importPathFor(file, roots);
+			if (
+				!rel ||
+				(pathPrefix && !rel.startsWith(pathPrefix)) ||
+				seen.has(rel)
+			) {
+				continue;
+			}
+			seen.add(rel);
+			matches.push(rel);
+		}
+
+		matches.sort((a, b) => a.localeCompare(b));
+		return matches.slice(0, IMPORT_COMPLETION_LIMIT).map((rel) => {
 			const item = new vscode.CompletionItem(
 				rel,
 				vscode.CompletionItemKind.File,
@@ -459,11 +428,24 @@ export class ProtoCompletionProvider implements vscode.CompletionItemProvider {
 			item.detail = "Import path";
 			item.documentation = `Import ${rel}`;
 			item.insertText = rel;
-			items.push(item);
+			return item;
+		});
+	}
+
+	/**
+	 * The index only answers workspace questions when it actually holds one.
+	 * `onDemand` is the tier that means "no workspace index".
+	 */
+	private workspaceIndex(): ProtoIndex | undefined {
+		if (!this.index) {
+			return undefined;
 		}
-		return items.sort((a, b) =>
-			(a.insertText as string).localeCompare(b.insertText as string),
-		);
+		try {
+			return this.index.stats().tier === "onDemand" ? undefined : this.index;
+		} catch {
+			// Index constructed but not built yet: treat as absent.
+			return undefined;
+		}
 	}
 
 	private inferContext(
@@ -624,6 +606,36 @@ export class ProtoCompletionProvider implements vscode.CompletionItemProvider {
 		}
 		return item;
 	}
+}
+
+/**
+ * The path an indexed file is imported by: its path relative to its module
+ * root, or to the deepest known root containing it when it belongs to no
+ * module. Returns undefined when no root contains the file.
+ */
+function importPathFor(
+	file: IndexedFile,
+	roots: readonly string[],
+): string | undefined {
+	let chosen = file.moduleRoot ? path.resolve(file.moduleRoot) : undefined;
+	if (!chosen) {
+		for (const root of roots) {
+			if (!file.path.startsWith(`${root}${path.sep}`)) {
+				continue;
+			}
+			if (!chosen || root.length > chosen.length) {
+				chosen = root;
+			}
+		}
+	}
+	if (!chosen) {
+		return undefined;
+	}
+	const rel = path.relative(chosen, file.path).replace(/\\/g, "/");
+	if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) {
+		return undefined;
+	}
+	return rel;
 }
 
 interface ProtoContext {

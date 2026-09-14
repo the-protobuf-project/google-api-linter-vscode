@@ -1,9 +1,10 @@
 {
-	"name": "google-api-linter",
-	"displayName": "Google API Linter",
-	"description": "Google API Linter for VS Code - Production Grade API Design",
-	"version": "1.3.0",
+	"name": "protobuf-aip-linter",
+	"displayName": "Protobuf AIP Linter",
+	"description": "Design Protocol Buffer APIs that follow the Google AIPs — lint, fix findings the linter states, browse the Buf Schema Registry, and document the whole API without leaving the editor.",
+	"version": "2.0.0",
 	"publisher": "the-protobuf-project",
+	"license": "Apache-2.0",
 	"icon": "picon.png",
 	"repository": {
 		"type": "git",
@@ -11,11 +12,13 @@
 	},
 	"packageManager": "bun@1.3.0",
 	"engines": {
-		"vscode": "^1.110.0"
+		"vscode": "^1.137.0"
 	},
 	"categories": [
 		"Linters",
-		"Programming Languages"
+		"Programming Languages",
+		"Formatters",
+		"Snippets"
 	],
 	"activationEvents": [
 		"workspaceContains:workspace.protobuf.yaml",
@@ -50,7 +53,7 @@
 			}
 		],
 		"configuration": {
-			"title": "Google API Linter",
+			"title": "Protobuf AIP Linter",
 			"properties": {
 				"gapi.binaryPath": {
 					"type": "string",
@@ -61,6 +64,11 @@
 					"type": "boolean",
 					"default": true,
 					"description": "Run linter automatically when saving proto files."
+				},
+				"gapi.lintOnStartup": {
+					"type": "boolean",
+					"default": true,
+					"description": "Lint the whole workspace once when it opens, so problems are listed before you touch a file. Turn off if you would rather lint only on save or on demand."
 				},
 				"gapi.enableOnType": {
 					"type": "boolean",
@@ -148,71 +156,132 @@
 					"type": "boolean",
 					"default": false,
 					"description": "If true, log full linter settings to the output channel on every lint. When false, settings are logged only when they change (or on first lint)."
+				},
+				"gapi.index.maxMemoryMB": {
+					"type": "number",
+					"default": 150,
+					"minimum": 32,
+					"description": "Soft memory ceiling for the proto symbol index, in MB. Above this the index drops detail (doc comments, field-level symbols) rather than growing. Raise it for very large monorepos; lower it on constrained machines."
+				},
+				"gapi.index.maxFiles": {
+					"type": "number",
+					"default": 20000,
+					"minimum": 0,
+					"description": "Maximum .proto files to index. Above this, workspace-wide features (Go to Symbol, Find References, Rename) switch off and per-file features keep working, rather than the editor stalling."
+				},
+				"gapi.index.enabled": {
+					"type": "boolean",
+					"default": true,
+					"description": "Build a workspace symbol index. Disabling falls back to per-file features only."
+				},
+				"gapi.protoView.maxFiles": {
+					"type": "number",
+					"default": 5000,
+					"minimum": 0,
+					"description": "Maximum .proto files the Proto view will enumerate. Above this, sections show a summary instead of listing every symbol."
+				},
+				"gapi.registries": {
+					"type": "array",
+					"default": [],
+					"description": "Additional Buf Schema Registry hosts to browse, e.g. 'buf.example.com'. buf.build is always available. Sign in with `buf registry login <host>`.",
+					"items": {
+						"type": "string"
+					}
+				},
+				"gapi.checkSetupOnStartup": {
+					"type": "boolean",
+					"default": true,
+					"description": "On a machine that is missing something the linter needs, offer to set it up. Silent once everything is installed."
 				}
 			}
 		},
 		"configurationDefaults": {
 			"[proto3]": {
-				"editor.defaultFormatter": "the-protobuf-project.google-api-linter"
+				"editor.defaultFormatter": "the-protobuf-project.protobuf-aip-linter",
+				"editor.semanticHighlighting.enabled": true
 			},
 			"[protobuf]": {
-				"editor.defaultFormatter": "the-protobuf-project.google-api-linter"
+				"editor.defaultFormatter": "the-protobuf-project.protobuf-aip-linter",
+				"editor.semanticHighlighting.enabled": true
 			}
 		},
 		"viewsContainers": {
 			"activitybar": [
 				{
-					"id": "google-api-linter",
-					"title": "Proto",
+					"id": "protobuf-aip-linter",
+					"title": "The Protobuf Project",
 					"icon": "picon.png"
 				}
 			]
 		},
 		"views": {
-			"google-api-linter": [
+			"protobuf-aip-linter": [
 				{
-					"id": "googleApiLinter.views.proto",
-					"name": "API Linter",
-					"contextualTitle": "API Linter"
+					"id": "googleApiLinter.views.structure",
+					"name": "Structure",
+					"contextualTitle": "Proto"
+				},
+				{
+					"id": "googleApiLinter.views.problems",
+					"name": "Problems",
+					"contextualTitle": "Proto"
+				},
+				{
+					"id": "googleApiLinter.views.dependencies",
+					"name": "Dependencies",
+					"contextualTitle": "Proto"
+				},
+				{
+					"id": "googleApiLinter.views.registries",
+					"name": "Registries",
+					"contextualTitle": "Proto",
+					"visibility": "collapsed"
 				}
 			]
 		},
 		"commands": [
 			{
 				"command": "googleApiLinter.lintCurrentFile",
-				"title": "Google API Linter: Lint Current File"
+				"title": "Protobuf AIP Linter: Lint Current File",
+				"icon": "$(inspect)"
 			},
 			{
 				"command": "googleApiLinter.lintWorkspace",
-				"title": "Google API Linter: Lint All Proto Files in Workspace"
+				"title": "Lint Workspace",
+				"icon": "$(inspect)",
+				"category": "Protobuf AIP Linter"
 			},
 			{
 				"command": "googleApiLinter.formatAllProtos",
-				"title": "Google API Linter: Format All Proto Files"
+				"title": "Format All Proto Files",
+				"icon": "$(symbol-parameter)",
+				"category": "Protobuf AIP Linter"
 			},
 			{
 				"command": "googleApiLinter.createConfig",
-				"title": "Google API Linter: Create Config File"
+				"title": "Protobuf AIP Linter: Create Config File"
 			},
 			{
 				"command": "googleApiLinter.restart",
-				"title": "Google API Linter: Restart"
+				"title": "Protobuf AIP Linter: Restart",
+				"icon": "$(debug-restart)"
 			},
 			{
 				"command": "googleApiLinter.updateGoogleapisCommit",
-				"title": "Google API Linter: Update googleapis Commit"
+				"title": "Protobuf AIP Linter: Update googleapis Commit"
 			},
 			{
 				"command": "googleApiLinter.reinstallAll",
-				"title": "Google API Linter: Reinstall All Dependencies"
+				"title": "Protobuf AIP Linter: Reinstall All Dependencies"
 			},
 			{
 				"command": "googleApiLinter.refreshProtoView",
-				"title": "Google API Linter: Refresh Proto View"
+				"title": "Protobuf AIP Linter: Refresh Proto View",
+				"icon": "$(refresh)"
 			},
 			{
 				"command": "googleApiLinter.initWorkspace",
-				"title": "Google API Linter: Initialize Proto Workspace"
+				"title": "Protobuf AIP Linter: Initialize Proto Workspace"
 			},
 			{
 				"command": "googleApiLinter.revealLocation",
@@ -225,16 +294,150 @@
 			},
 			{
 				"command": "googleApiLinter.lintFileFromTree",
-				"title": "Lint this file"
+				"title": "Lint this file",
+				"icon": "$(inspect)"
 			},
 			{
 				"command": "googleApiLinter.formatFileFromTree",
-				"title": "Format this file"
+				"title": "Format this file",
+				"icon": "$(symbol-parameter)"
 			},
 			{
 				"command": "googleApiLinter.reportIssue",
-				"title": "Google API Linter: Report Issue on GitHub",
+				"title": "Protobuf AIP Linter: Report Issue on GitHub",
 				"icon": "$(github)"
+			},
+			{
+				"command": "googleApiLinter.openRegistry",
+				"title": "Protobuf AIP Linter: Open Proto Registry",
+				"icon": "$(cloud)"
+			},
+			{
+				"command": "googleApiLinter.dependencies.checkUpdates",
+				"title": "Check for Dependency Updates",
+				"icon": "$(sync)"
+			},
+			{
+				"command": "googleApiLinter.dependencies.update",
+				"title": "Update Dependencies (buf dep update)",
+				"icon": "$(arrow-down)"
+			},
+			{
+				"command": "googleApiLinter.dependencies.generate",
+				"title": "Generate (buf generate)",
+				"icon": "$(play)"
+			},
+			{
+				"command": "googleApiLinter.dependencies.refresh",
+				"title": "Refresh Dependencies",
+				"icon": "$(refresh)"
+			},
+			{
+				"command": "googleApiLinter.structure.search",
+				"title": "Search Symbols",
+				"icon": "$(search)",
+				"category": "Protobuf AIP Linter"
+			},
+			{
+				"command": "googleApiLinter.problems.groupByRule",
+				"title": "Group by Rule",
+				"icon": "$(list-tree)"
+			},
+			{
+				"command": "googleApiLinter.dependencies.generatePlugin",
+				"title": "Generate This Plugin",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(play)"
+			},
+			{
+				"command": "googleApiLinter.openDetailsToSide",
+				"title": "Open Details to the Side",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(split-horizontal)"
+			},
+			{
+				"command": "googleApiLinter.lockDetails",
+				"title": "Lock Details Panel",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(lock)"
+			},
+			{
+				"command": "googleApiLinter.generateApiReport",
+				"title": "Generate API Report",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(book)"
+			},
+			{
+				"command": "googleApiLinter.addRegistry",
+				"title": "Add a Registry",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(add)"
+			},
+			{
+				"command": "googleApiLinter.removeRegistry",
+				"title": "Remove Registry",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(trash)"
+			},
+			{
+				"command": "googleApiLinter.loginRegistry",
+				"title": "Sign in to Registry",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(key)"
+			},
+			{
+				"command": "googleApiLinter.captureErrors",
+				"title": "Capture All Errors",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(device-camera)"
+			},
+			{
+				"command": "googleApiLinter.copyAnnotationImport",
+				"title": "Copy Import Statement",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(clippy)"
+			},
+			{
+				"command": "googleApiLinter.insertAnnotation",
+				"title": "Insert Usage at Cursor",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(insert)"
+			},
+			{
+				"command": "googleApiLinter.createStarterProject",
+				"title": "Create Starter Project",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(new-folder)"
+			},
+			{
+				"command": "googleApiLinter.setupGithubCI",
+				"title": "Set Up GitHub Actions CI",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(github-action)"
+			},
+			{
+				"command": "googleApiLinter.checkSetup",
+				"title": "Check Setup",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(tools)"
+			},
+			{
+				"command": "googleApiLinter.setupToolchain",
+				"title": "Install Missing Tools",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(cloud-download)"
+			},
+			{
+				"command": "googleApiLinter.setupToolchainForce",
+				"title": "Reinstall All Tools (force)",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(sync)"
+			},
+			{
+				"command": "googleApiLinter.fixAllInFile",
+				"title": "Fix All AIP Findings in This File",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(lightbulb-autofix)"
 			}
 		],
 		"menus": {
@@ -246,70 +449,281 @@
 			],
 			"view/title": [
 				{
-					"command": "googleApiLinter.reportIssue",
-					"when": "view == googleApiLinter.views.proto",
+					"command": "googleApiLinter.lintWorkspace",
+					"when": "view == googleApiLinter.views.structure",
 					"group": "navigation@1"
 				},
 				{
-					"command": "googleApiLinter.collapseAll",
-					"when": "view == googleApiLinter.views.proto",
+					"command": "googleApiLinter.formatAllProtos",
+					"when": "view == googleApiLinter.views.structure",
 					"group": "navigation@2"
+				},
+				{
+					"command": "googleApiLinter.structure.search",
+					"when": "view == googleApiLinter.views.structure",
+					"group": "navigation@3"
+				},
+				{
+					"command": "googleApiLinter.collapseAll",
+					"when": "view == googleApiLinter.views.structure",
+					"group": "navigation@4"
+				},
+				{
+					"command": "googleApiLinter.problems.groupByRule",
+					"when": "view == googleApiLinter.views.problems",
+					"group": "navigation@1"
+				},
+				{
+					"command": "googleApiLinter.openRegistry",
+					"when": "view == googleApiLinter.views.dependencies",
+					"group": "navigation@1"
+				},
+				{
+					"command": "googleApiLinter.dependencies.checkUpdates",
+					"when": "view == googleApiLinter.views.dependencies",
+					"group": "navigation@2"
+				},
+				{
+					"command": "googleApiLinter.dependencies.generate",
+					"when": "view == googleApiLinter.views.dependencies",
+					"group": "navigation@3"
+				},
+				{
+					"command": "googleApiLinter.dependencies.refresh",
+					"when": "view == googleApiLinter.views.dependencies",
+					"group": "navigation@4"
+				},
+				{
+					"command": "googleApiLinter.reportIssue",
+					"when": "view == googleApiLinter.views.structure",
+					"group": "1_more@3"
+				},
+				{
+					"command": "googleApiLinter.generateApiReport",
+					"when": "view == googleApiLinter.views.structure",
+					"group": "1_more@1"
+				},
+				{
+					"command": "googleApiLinter.addRegistry",
+					"when": "view == googleApiLinter.views.registries",
+					"group": "navigation@1"
+				},
+				{
+					"command": "googleApiLinter.openDetailsToSide",
+					"when": "view == googleApiLinter.views.structure",
+					"group": "1_more@2"
+				},
+				{
+					"command": "googleApiLinter.captureErrors",
+					"when": "view == googleApiLinter.views.problems",
+					"group": "navigation@2"
+				},
+				{
+					"command": "googleApiLinter.reportIssue",
+					"when": "view == googleApiLinter.views.problems",
+					"group": "navigation@3"
 				}
 			],
 			"view/item/context": [
 				{
 					"command": "googleApiLinter.lintFileFromTree",
-					"when": "view == googleApiLinter.views.proto",
+					"when": "view == googleApiLinter.views.structure",
 					"group": "1_modification"
 				},
 				{
 					"command": "googleApiLinter.formatFileFromTree",
-					"when": "view == googleApiLinter.views.proto",
+					"when": "view == googleApiLinter.views.structure",
 					"group": "1_modification"
+				},
+				{
+					"command": "googleApiLinter.dependencies.generatePlugin",
+					"when": "view == googleApiLinter.views.dependencies && viewItem =~ /^genPlugin:/",
+					"group": "inline"
+				},
+				{
+					"command": "googleApiLinter.dependencies.generatePlugin",
+					"when": "view == googleApiLinter.views.dependencies && viewItem =~ /^genPlugin:/",
+					"group": "1_run"
+				},
+				{
+					"command": "googleApiLinter.dependencies.generate",
+					"when": "view == googleApiLinter.views.dependencies && viewItem == genConfig",
+					"group": "inline"
+				},
+				{
+					"command": "googleApiLinter.loginRegistry",
+					"when": "view == googleApiLinter.views.registries && viewItem =~ /^registry:/",
+					"group": "inline"
+				},
+				{
+					"command": "googleApiLinter.removeRegistry",
+					"when": "view == googleApiLinter.views.registries && viewItem == registry:custom",
+					"group": "1_modify"
+				},
+				{
+					"command": "googleApiLinter.insertAnnotation",
+					"when": "view == googleApiLinter.views.structure && viewItem == annotation",
+					"group": "inline"
+				},
+				{
+					"command": "googleApiLinter.copyAnnotationImport",
+					"when": "view == googleApiLinter.views.structure && viewItem == annotation",
+					"group": "1_annotation@1"
+				},
+				{
+					"command": "googleApiLinter.insertAnnotation",
+					"when": "view == googleApiLinter.views.structure && viewItem == annotation",
+					"group": "1_annotation@2"
 				}
 			]
-		}
+		},
+		"semanticTokenTypes": [
+			{
+				"id": "protoAnnotation",
+				"superType": "decorator",
+				"description": "A custom protobuf option that resolves to a known extension"
+			},
+			{
+				"id": "protoAnnotationNamespace",
+				"superType": "namespace",
+				"description": "The package portion of a custom protobuf option name"
+			},
+			{
+				"id": "protoAnnotationField",
+				"superType": "property",
+				"description": "A field inside a custom option's message body"
+			},
+			{
+				"id": "protoAnnotationValue",
+				"superType": "enumMember",
+				"description": "An enum member assigned to a custom option or one of its body fields"
+			},
+			{
+				"id": "protoAnnotationUnknown",
+				"superType": "decorator",
+				"description": "A custom protobuf option that no indexed extend block declares, or whose annotations.proto this file does not import"
+			},
+			{
+				"id": "protoAnnotationFieldUnknown",
+				"superType": "property",
+				"description": "A field the custom option's message body does not declare"
+			},
+			{
+				"id": "protoAnnotationValueUnknown",
+				"superType": "enumMember",
+				"description": "A value assigned to an enum-typed option or field that the enum does not declare"
+			}
+		],
+		"semanticTokenScopes": [
+			{
+				"language": "proto3",
+				"scopes": {
+					"protoAnnotation": [
+						"entity.name.function.decorator",
+						"entity.name.tag",
+						"support.type.property-name"
+					],
+					"protoAnnotationNamespace": [
+						"entity.name.namespace",
+						"entity.name.type.namespace",
+						"support.type"
+					],
+					"protoAnnotationField": [
+						"variable.other.property",
+						"support.type.property-name",
+						"meta.object-literal.key"
+					],
+					"protoAnnotationValue": [
+						"variable.other.enummember",
+						"constant.other.enum",
+						"constant.language"
+					],
+					"protoAnnotationUnknown": [
+						"invalid.illegal",
+						"invalid"
+					],
+					"protoAnnotationFieldUnknown": [
+						"invalid.illegal",
+						"invalid"
+					],
+					"protoAnnotationValueUnknown": [
+						"invalid.illegal",
+						"invalid"
+					]
+				}
+			}
+		],
+		"viewsWelcome": [
+			{
+				"view": "googleApiLinter.views.dependencies",
+				"contents": "Browse the Proto Registry to add a module from the Buf Schema Registry.\n[Open Proto Registry](command:googleApiLinter.openRegistry)\nDependencies come from `deps:` in your `buf.yaml`.\n[Create Starter Project](command:googleApiLinter.createStarterProject)",
+				"when": "!googleApiLinter.hasDeps"
+			},
+			{
+				"view": "googleApiLinter.views.problems",
+				"contents": "No problems found.\n\nYour proto files pass every enabled rule.\n\n[Lint Workspace](command:googleApiLinter.lintWorkspace)",
+				"when": "!googleApiLinter.hasProblems"
+			}
+		]
 	},
 	"scripts": {
 		"vscode:prepublish": "tsc --noEmit && node esbuild.js --production",
 		"compile": "tsc && node esbuild.js",
 		"build": "bun run compile",
-		"typecheck": "tsc --noEmit",
-		"watch": "tsc -watch -p ./",
+		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.webview.json",
+		"watch": "node esbuild.js --watch",
 		"pretest": "bun run compile",
-		"test": "bun run compile && node out/test/runTest.js",
+		"test": "node esbuild.js && bun test src/test/unit",
 		"test:e2e": "bun run compile && node out/test/runTest.js",
-		"lint": "eslint src --ext ts",
+		"lint": "biome check .",
 		"format": "biome format --write .",
 		"format:check": "biome format .",
-		"lint:biome": "biome check .",
 		"package": "rm -rf node_modules && bun install && bun run compile && vsce package",
 		"package:npm": "rm -rf node_modules && npm install && bun run compile && vsce package",
 		"publish": "vsce publish",
 		"build:local": "bun run package",
-		"test:local": "bun run compile && code --extensionDevelopmentPath=$PWD smoke_test/protobuf"
+		"test:local": "bun run compile && code --extensionDevelopmentPath=$PWD smoke_test/protobuf",
+		"test:unit": "node esbuild.js && bun test src/test/unit",
+		"test:watch": "bun test --watch src/test/unit"
 	},
 	"overrides": {
 		"glob": "^13.0.0"
 	},
 	"dependencies": {
 		"fast-glob": "^3.3.3",
-		"vscode-languageclient": "^10.0.0",
-		"yaml": "^2.8.2"
+		"yaml": "^2.9.1"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.4.6",
+		"@biomejs/biome": "^2.5.13",
+		"@tailwindcss/cli": "^4.3.3",
+		"@types/bun": "^1.4.2",
 		"@types/node": "^26.0.0",
-		"@types/vscode": "^1.110.0",
-		"@typescript-eslint/eslint-plugin": "^8.57.0",
-		"@typescript-eslint/parser": "^8.57.0",
+		"@types/vscode": "^1.137.0",
 		"@vscode/test-electron": "^3.0.0",
-		"@vscode/vsce": "^3.7.1",
+		"@vscode/vsce": "^3.9.2",
 		"esbuild": "^0.28.0",
-		"eslint": "^10.0.3",
-		"typedoc": "^0.28.17",
-		"typescript": "^6.0.2",
-		"vscode-languageserver": "^10.0.0",
-		"vscode-languageserver-textdocument": "^1.0.12"
-	}
+		"esbuild-svelte": "^0.9.5",
+		"happy-dom": "^20.14.5",
+		"svelte": "^5.57.0",
+		"tailwindcss": "^4.3.3",
+		"typedoc": "^0.28.20",
+		"typescript": "^7.0.2"
+	},
+	"bugs": {
+		"url": "https://github.com/the-protobuf-project/google-api-linter-vscode/issues"
+	},
+	"homepage": "https://github.com/the-protobuf-project/google-api-linter-vscode#readme",
+	"keywords": [
+		"protobuf",
+		"proto",
+		"grpc",
+		"aip",
+		"api-linter",
+		"buf",
+		"bsr",
+		"api design",
+		"google api",
+		"linter",
+		"protocol buffers"
+	]
 }

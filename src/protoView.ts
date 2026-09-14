@@ -1,18 +1,74 @@
 import * as vscode from "vscode";
 import { DIAGNOSTIC_SOURCE } from "./constants";
+import type { IndexedSymbol, ProtoIndex, SymbolKind } from "./index/types";
 import {
+	annotationLocationItem,
+	buildServiceItem,
+	collectAnnotationNamespaces,
+	collectAnnotationsIn,
+	collectMessageMembers,
+	collectResources,
+	DEFAULT_PROTO_VIEW_FILE_CEILING,
+	type GroupedSymbols,
+	groupSymbolsOfKind,
 	type LocationItem,
+	MAX_SECTION_SYMBOLS,
 	type RpcItem,
+	SECTION_GROUPING_THRESHOLD,
 	type ServiceItem,
-	scanWorkspaceProto,
+	type SymbolVersionGroup,
+	toLocationItem,
+	toRpcLocationItem,
 } from "./protoScanner";
 import {
 	findGapiConfigFile,
 	findGapiConfigFileInFolder,
 } from "./utils/configReader";
-import { findProtoFiles, findProtoFilesInFolder } from "./utils/fileUtils";
 import { invalidateProtoImportRootsCache } from "./utils/protoImportRoots";
-import { parseMessageBody } from "./utils/protoParser";
+import { symbolSpan } from "./views/symbolDetail";
+
+/** View id, matching `contributes.views` in package.json. */
+export const STRUCTURE_VIEW_ID = "googleApiLinter.views.structure";
+
+/** Milliseconds to coalesce structural refreshes over. */
+const STRUCTURE_REFRESH_DEBOUNCE_MS = 400;
+
+/** Milliseconds to coalesce diagnostic-driven label refreshes over. */
+const DIAGNOSTIC_REFRESH_DEBOUNCE_MS = 350;
+
+/** Top-level sections the view can offer. */
+export type ProtoSectionId =
+	| "services"
+	| "rpcs"
+	| "resources"
+	| "messages"
+	| "enums"
+	| "annotations";
+
+/** Sections that enumerate symbols and are therefore subject to the ceiling. */
+const SYMBOL_SECTIONS: ReadonlySet<ProtoSectionId> = new Set<ProtoSectionId>([
+	"services",
+	"rpcs",
+	"resources",
+	"messages",
+	"enums",
+	"annotations",
+]);
+
+/**
+ * The four sections that enumerate one symbol kind, and how to label them. The
+ * `resources` and `annotations` sections are derived differently and are not in
+ * here.
+ */
+const SYMBOL_SECTION_SPECS: ReadonlyMap<
+	ProtoSectionId,
+	{ readonly kind: SymbolKind; readonly noun: string }
+> = new Map([
+	["services", { kind: "service" as SymbolKind, noun: "services" }],
+	["rpcs", { kind: "rpc" as SymbolKind, noun: "RPCs" }],
+	["messages", { kind: "message" as SymbolKind, noun: "messages" }],
+	["enums", { kind: "enum" as SymbolKind, noun: "enums" }],
+]);
 
 export type ProtoTreeNode =
 	| {
@@ -28,6 +84,14 @@ export type ProtoTreeNode =
 			detail: string;
 			icon: string;
 			folderUri?: vscode.Uri;
+	  }
+	| {
+			/** Non-actionable explanation: a ceiling, a cap, or a disabled index. */
+			kind: "info";
+			label: string;
+			detail?: string;
+			icon: string;
+			tooltip?: string;
 	  }
 	| {
 			kind: "file";
@@ -46,21 +110,12 @@ export type ProtoTreeNode =
 	  }
 	| {
 			kind: "section";
-			id:
-				| "services"
-				| "resources"
-				| "mcp"
-				| "messages"
-				| "enums"
-				| "files"
-				| "deps"
-				| "rpcs"
-				| "others";
+			id: ProtoSectionId;
 			label: string;
-			count: number;
+			/** Undefined until the section has been expanded at least once. */
+			count?: number;
 			icon: string;
 	  }
-	| { kind: "dep"; name: string; commit: string }
 	| { kind: "service"; service: ServiceItem }
 	| { kind: "rpc"; rpc: RpcItem; serviceName: string }
 	| {
@@ -74,10 +129,26 @@ export type ProtoTreeNode =
 			rpcRange?: vscode.Range;
 	  }
 	| {
-			kind: "mcpSubsection";
-			id: "tools" | "elicitation" | "prompts";
+			/** One annotation namespace, e.g. `mcp.v1`. Derived, never hardcoded. */
+			kind: "annotationNamespace";
+			namespace: string;
+			count: number;
+	  }
+	| {
+			/**
+			 * One level of a grouped symbol section: a package version, or a
+			 * package within one. Derived from the indexed `package` statement,
+			 * so a workspace with no `vN` packages simply never groups.
+			 */
+			kind: "symbolGroup";
+			section: ProtoSectionId;
+			/** Version key, e.g. `v6`. */
+			version: string;
+			/** Package stem; undefined on a version node. */
+			packageKey?: string;
 			label: string;
 			count: number;
+			icon: string;
 	  }
 	| { kind: "location"; item: LocationItem }
 	| {
@@ -91,76 +162,265 @@ export type ProtoTreeNode =
 	| { kind: "folder"; name: string; uri: vscode.Uri }
 	| { kind: "action"; command: string; label: string; icon: string };
 
+/**
+ * The indexed symbol a tree node stands for, when it stands for one.
+ *
+ * Section headers, counts and info rows have no symbol; selecting one should
+ * leave the Details panel showing whatever it already had rather than blanking
+ * it, so those return `undefined` and the caller decides.
+ *
+ * @param node - The selected node
+ * @returns Its fully-qualified name, or `undefined`
+ */
+export function fqnOfNode(node: ProtoTreeNode | undefined): string | undefined {
+	if (!node) {
+		return undefined;
+	}
+	if (node.kind === "location") {
+		return node.item.fqn;
+	}
+	if (node.kind === "service") {
+		return node.service.fqn;
+	}
+	if (node.kind === "rpc") {
+		return node.rpc.fqn;
+	}
+	return undefined;
+}
+
+/** A leaf node explaining that a section refused to enumerate. */
+function infoNode(
+	label: string,
+	detail?: string,
+	icon = "info",
+	tooltip?: string,
+): ProtoTreeNode {
+	return { kind: "info", label, detail, icon, tooltip };
+}
+
+/** A leaf node saying how much of a known total is actually shown. */
+function _truncatedNode(
+	shown: number,
+	total: number,
+	noun: string,
+): ProtoTreeNode {
+	return infoNode(
+		`Showing ${shown} of ${total} ${noun}`,
+		"list truncated",
+		"list-flat",
+		`The Proto view lists at most ${shown} ${noun}. ${total - shown} more exist in this workspace.`,
+	);
+}
+
+/** A leaf node saying a per-section cap cut the list short at an unknown total. */
+function cappedNode(shown: number, cap: number, noun: string): ProtoTreeNode {
+	return infoNode(
+		`Showing first ${shown} of more ${noun}`,
+		`capped at ${cap}`,
+		"list-flat",
+		`This section stops at ${cap} ${noun} so the tree cannot grow unbounded. Narrow the workspace to see the rest.`,
+	);
+}
+
+/**
+ * The Proto view.
+ *
+ * Two rules shape this class:
+ *
+ *   1. **Nothing is computed until it is expanded.** Building the root costs a
+ *      config lookup and `index.stats()`; every symbol list is derived on the
+ *      `getChildren` call for its section and cached until the index changes.
+ *   2. **No document is ever opened in a loop.** All symbol data comes from the
+ *      in-memory {@link ProtoIndex}. The old implementation opened one
+ *      TextDocument per workspace proto, which VS Code never releases.
+ */
 export class ProtoTreeDataProvider
-	implements vscode.TreeDataProvider<ProtoTreeNode>
+	implements vscode.TreeDataProvider<ProtoTreeNode>, vscode.Disposable
 {
 	private readonly _onDidChangeTreeData = new vscode.EventEmitter<
 		ProtoTreeNode | undefined | undefined
 	>();
 	readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
-	private scanCache: {
-		services: ServiceItem[];
-		rpcs: LocationItem[];
-		resources: LocationItem[];
-		messages: LocationItem[];
-		mcp: LocationItem[];
-		mcpTools: LocationItem[];
-		mcpElicitation: LocationItem[];
-		mcpPrompts: LocationItem[];
-		others: LocationItem[];
-	} | null = null;
+
+	/** Children per expanded section, dropped whenever the index changes. */
+	private readonly sectionCache = new Map<ProtoSectionId, ProtoTreeNode[]>();
+	/**
+	 * Grouped symbols per section, kept so expanding a version or a package
+	 * costs a lookup rather than a second walk of the index.
+	 */
+	private readonly groupCache = new Map<ProtoSectionId, GroupedSymbols>();
+	/** Counts learned by expanding a section, used to label it afterwards. */
+	private readonly sectionCounts = new Map<ProtoSectionId, number>();
+	private readonly indexSubscription: { dispose(): void } | undefined;
+	private refreshTimer: NodeJS.Timeout | undefined;
 
 	constructor(
 		private readonly diagnosticCollection: vscode.DiagnosticCollection,
-		private getBinaryVersion: () => Promise<string>,
-		private getGoogleapisCommit: () => Promise<string>,
-		private getProtobufCommit: () => Promise<string>,
 		private readonly resolveTypeToLocation?: (
 			typeName: string,
 			contextUri: vscode.Uri,
 		) => Promise<vscode.Location | null>,
-	) {}
+		private readonly index?: ProtoIndex,
+		private readonly fileCeiling: number = DEFAULT_PROTO_VIEW_FILE_CEILING,
+	) {
+		this.indexSubscription = this.index?.onDidChange(() => {
+			this.refreshStructureSoon();
+		});
+	}
 
-	/** Full rescan (config / protos structure changed). */
+	/** Full refresh (config / index / protos structure changed). */
 	refreshStructure(): void {
-		this.scanCache = null;
+		this.sectionCache.clear();
+		this.groupCache.clear();
+		this.sectionCounts.clear();
 		this._onDidChangeTreeData.fire(undefined);
 	}
 
-	/** Tree labels only (e.g. diagnostic counts); keeps structural scan cache. */
+	/**
+	 * Debounced {@link refreshStructure}. Watchers fire in bursts — one
+	 * `buf.lock` write used to trigger a full rescan per event.
+	 */
+	refreshStructureSoon(): void {
+		if (this.refreshTimer) {
+			clearTimeout(this.refreshTimer);
+		}
+		this.refreshTimer = setTimeout(() => {
+			this.refreshTimer = undefined;
+			this.refreshStructure();
+		}, STRUCTURE_REFRESH_DEBOUNCE_MS);
+	}
+
+	/** Tree labels only (e.g. diagnostic counts); keeps derived section data. */
 	refreshPresentation(): void {
 		this._onDidChangeTreeData.fire(undefined);
 	}
 
-	private async getScan(): Promise<{
-		services: ServiceItem[];
-		rpcs: LocationItem[];
-		resources: LocationItem[];
-		messages: LocationItem[];
-		mcp: LocationItem[];
-		mcpTools: LocationItem[];
-		mcpElicitation: LocationItem[];
-		mcpPrompts: LocationItem[];
-		others: LocationItem[];
-	}> {
-		if (this.scanCache) {
-			return this.scanCache;
+	/** Drops timers and the index subscription. */
+	dispose(): void {
+		if (this.refreshTimer) {
+			clearTimeout(this.refreshTimer);
+			this.refreshTimer = undefined;
 		}
-		const root = vscode.workspace.workspaceFolders?.[0]?.uri;
-		this.scanCache = root
-			? await scanWorkspaceProto(root)
-			: {
-					services: [],
-					rpcs: [],
-					resources: [],
-					messages: [],
-					mcp: [],
-					mcpTools: [],
-					mcpElicitation: [],
-					mcpPrompts: [],
-					others: [],
-				};
-		return this.scanCache;
+		this.indexSubscription?.dispose();
+		this._onDidChangeTreeData.dispose();
+	}
+
+	/** The index, or undefined when there is no usable workspace index. */
+	private usableIndex(): ProtoIndex | undefined {
+		if (!this.index) {
+			return undefined;
+		}
+		return this.index.stats().tier === "onDemand" ? undefined : this.index;
+	}
+
+	/** Indexed proto count, or undefined when the index is unusable. */
+	private indexedFileCount(): number | undefined {
+		return this.usableIndex()?.stats().fileCount;
+	}
+
+	/** True when the workspace is too large to enumerate symbols for. */
+	private overCeiling(): boolean {
+		const count = this.indexedFileCount();
+		return count !== undefined && count > this.fileCeiling;
+	}
+
+	/**
+	 * Note shown at the root of a workspace past the file ceiling.
+	 *
+	 * This used to replace every symbol section with a refusal. It now reports
+	 * what the view did instead — group — because the reason for refusing was
+	 * the width of a flat list, and a grouped section does not have one.
+	 *
+	 * @returns The note node
+	 */
+	private ceilingNode(): ProtoTreeNode {
+		const count = this.indexedFileCount() ?? 0;
+		return infoNode(
+			`${count} proto files · symbols grouped by version`,
+			"large workspace",
+			"versions",
+			`Above ${this.fileCeiling} files the symbol sections group by package version and then by package, so no single level of the tree grows unbounded. Every symbol is still reachable; expand a version to see its packages.`,
+		);
+	}
+
+	/** The single child every symbol section shows when there is no index. */
+	private noIndexNode(): ProtoTreeNode {
+		const reason = this.index?.stats().degradeReason;
+		return infoNode(
+			this.index
+				? "Workspace index is running on demand"
+				: "Workspace index unavailable",
+			reason ?? "symbol sections disabled",
+			"circle-slash",
+			`Workspace symbol sections read the in-memory index; they never open documents. ${
+				reason ?? "No index is attached to this view."
+			}`,
+		);
+	}
+
+	/**
+	 * Findings attributed to one symbol, for the inline count on its row.
+	 *
+	 * Counts across the symbol's whole span rather than its declaration line:
+	 * most AIP rules fire on a field or an option inside the body, so a
+	 * line-exact count reads zero on precisely the symbols worth looking at.
+	 *
+	 * Falls back to the declaration line when the symbol is not indexed, which
+	 * is what happens for items derived from a scan rather than the index.
+	 *
+	 * @param uri - File the symbol lives in
+	 * @param fqn - Fully-qualified name, when known
+	 * @param line - Zero-based declaration line
+	 * @returns Error and warning counts inside the span
+	 */
+	private countsFor(
+		uri: vscode.Uri,
+		fqn: string | undefined,
+		line: number,
+	): { errors: number; warnings: number } {
+		const diagnostics = this.diagnosticCollection.get(uri) ?? [];
+		if (diagnostics.length === 0) {
+			return { errors: 0, warnings: 0 };
+		}
+
+		let from = line;
+		let to = line;
+		const index = this.usableIndex();
+		const symbol = fqn ? index?.symbol(fqn) : undefined;
+		if (symbol && index) {
+			const siblings = index.symbolsInFile(symbol.fileId);
+			[from, to] = symbolSpan(siblings, symbol, Number.MAX_SAFE_INTEGER);
+		}
+
+		let errors = 0;
+		let warnings = 0;
+		for (const diagnostic of diagnostics) {
+			if (diagnostic.source !== DIAGNOSTIC_SOURCE) {
+				continue;
+			}
+			const at = diagnostic.range.start.line;
+			if (at < from || at > to) {
+				continue;
+			}
+			if (diagnostic.severity === vscode.DiagnosticSeverity.Error) {
+				errors++;
+			} else if (diagnostic.severity === vscode.DiagnosticSeverity.Warning) {
+				warnings++;
+			}
+		}
+		return { errors, warnings };
+	}
+
+	/** `4 errors` / `2 warnings`, appended to a row's description. */
+	private countSuffix(counts: { errors: number; warnings: number }): string {
+		const parts: string[] = [];
+		if (counts.errors > 0) {
+			parts.push(`${counts.errors}✗`);
+		}
+		if (counts.warnings > 0) {
+			parts.push(`${counts.warnings}⚠`);
+		}
+		return parts.join(" ");
 	}
 
 	getTreeItem(element: ProtoTreeNode): vscode.TreeItem {
@@ -173,15 +433,15 @@ export class ProtoTreeDataProvider
 			item.iconPath = new vscode.ThemeIcon(element.icon);
 			return item;
 		}
-		if (element.kind === "dep") {
+		if (element.kind === "info") {
 			const item = new vscode.TreeItem(
-				element.name,
+				element.label,
 				vscode.TreeItemCollapsibleState.None,
 			);
-			item.description = element.commit.slice(0, 7);
-			item.iconPath = new vscode.ThemeIcon(
-				"circle-filled",
-				new vscode.ThemeColor("terminal.ansiCyan"),
+			item.description = element.detail;
+			item.iconPath = new vscode.ThemeIcon(element.icon);
+			item.tooltip = new vscode.MarkdownString(
+				element.tooltip ?? element.label,
 			);
 			return item;
 		}
@@ -273,17 +533,17 @@ export class ProtoTreeDataProvider
 				element.label,
 				vscode.TreeItemCollapsibleState.Collapsed,
 			);
-			item.description = `${element.count}`;
+			const count = element.count ?? this.sectionCounts.get(element.id);
+			item.description = count === undefined ? undefined : `${count}`;
 			const sectionColors: Record<string, string> = {
 				services: "symbolIcon.interfaceForeground",
-				resources: "symbolIcon.classForeground",
-				mcp: "symbolIcon.keywordForeground",
+				resources: "symbolIcon.structForeground",
+				annotations: "symbolIcon.keywordForeground",
 				messages: "symbolIcon.classForeground",
 				enums: "symbolIcon.enumForeground",
 				deps: "terminal.ansiCyan",
 				files: "symbolIcon.fileForeground",
 				rpcs: "terminal.ansiMagenta",
-				others: "symbolIcon.variableForeground",
 			};
 			const color = sectionColors[element.id];
 			item.iconPath = new vscode.ThemeIcon(
@@ -292,16 +552,45 @@ export class ProtoTreeDataProvider
 			);
 			const sectionDescriptions: Record<string, string> = {
 				services: "Services with RPCs (expand to see Request/Response)",
-				resources: "Messages with google.api.resource",
-				mcp: "MCP: Tools, Elicitation, Prompts (by RPC)",
+				resources: "Messages carrying a google.api.resource option",
+				annotations:
+					"Custom options, grouped by namespace — derived from their extend blocks",
 				files: "Proto files (cyan=OK, magenta=warning, blue=error)",
 				enums: "Enum definitions",
 				deps: "Dependencies (googleapis, protobuf); cyan when downloaded",
 				rpcs: "RPC methods in services",
 				messages: "Proto messages (expand for fields and enums)",
-				others: "Other definitions",
 			};
 			item.tooltip = sectionDescriptions[element.id] ?? element.label;
+			return item;
+		}
+		if (element.kind === "annotationNamespace") {
+			const item = new vscode.TreeItem(
+				element.namespace,
+				vscode.TreeItemCollapsibleState.Collapsed,
+			);
+			item.description = `${element.count}`;
+			item.iconPath = new vscode.ThemeIcon(
+				"symbol-namespace",
+				new vscode.ThemeColor("symbolIcon.keywordForeground"),
+			);
+			item.tooltip = new vscode.MarkdownString(
+				`Annotation namespace **${element.namespace}** — ${element.count} custom option(s), discovered from \`extend google.protobuf.*Options\` blocks.`,
+			);
+			return item;
+		}
+		if (element.kind === "symbolGroup") {
+			const item = new vscode.TreeItem(
+				element.label,
+				vscode.TreeItemCollapsibleState.Collapsed,
+			);
+			item.description = String(element.count);
+			item.iconPath = new vscode.ThemeIcon(element.icon);
+			item.contextValue = "symbolGroup";
+			item.tooltip =
+				element.packageKey === undefined
+					? `${element.count} in package version ${element.label}`
+					: `${element.count} in ${element.label}.${element.version}`;
 			return item;
 		}
 		if (element.kind === "service") {
@@ -309,7 +598,17 @@ export class ProtoTreeDataProvider
 				element.service.name,
 				vscode.TreeItemCollapsibleState.Collapsed,
 			);
-			item.description = `${element.service.rpcs.length} RPC(s)`;
+			const svc = this.countsFor(
+				element.service.uri,
+				element.service.fqn,
+				element.service.range.start.line,
+			);
+			item.description = [
+				`${element.service.rpcs.length} RPC(s)`,
+				this.countSuffix(svc),
+			]
+				.filter((part) => part.length > 0)
+				.join("  ");
 			item.iconPath = new vscode.ThemeIcon(
 				"symbol-interface",
 				new vscode.ThemeColor("symbolIcon.interfaceForeground"),
@@ -329,7 +628,14 @@ export class ProtoTreeDataProvider
 				element.rpc.name,
 				vscode.TreeItemCollapsibleState.Collapsed,
 			);
-			item.description = element.rpc.detail;
+			const rpcCounts = this.countsFor(
+				element.rpc.uri,
+				element.rpc.fqn,
+				element.rpc.range.start.line,
+			);
+			item.description = [element.rpc.detail, this.countSuffix(rpcCounts)]
+				.filter((part) => part && part.length > 0)
+				.join("  ");
 			item.iconPath = new vscode.ThemeIcon(
 				"symbol-method",
 				new vscode.ThemeColor("terminal.ansiMagenta"),
@@ -385,42 +691,40 @@ export class ProtoTreeDataProvider
 			}
 			return item;
 		}
-		if (element.kind === "mcpSubsection") {
-			const item = new vscode.TreeItem(
-				element.label,
-				vscode.TreeItemCollapsibleState.Expanded,
-			);
-			item.description = `${element.count}`;
-			item.iconPath = new vscode.ThemeIcon(
-				element.id === "tools"
-					? "tools"
-					: element.id === "elicitation"
-						? "question"
-						: "comment-discussion",
-			);
-			return item;
-		}
 		if (element.kind === "location") {
 			const { item: loc } = element;
-			const isMessage = loc.detail === "message";
+			const expandable = loc.expandable === true;
 			const treeItem = new vscode.TreeItem(
 				loc.label,
-				isMessage
+				expandable
 					? vscode.TreeItemCollapsibleState.Collapsed
 					: vscode.TreeItemCollapsibleState.None,
 			);
-			treeItem.description = loc.detail;
+			const counts = this.countsFor(loc.uri, loc.fqn, loc.range.start.line);
+			const suffix = this.countSuffix(counts);
+			treeItem.description = [loc.detail, suffix]
+				.filter((part) => part && part.length > 0)
+				.join("  ");
 			treeItem.iconPath = new vscode.ThemeIcon(
 				loc.icon,
-				isMessage
-					? new vscode.ThemeColor("symbolIcon.classForeground")
-					: undefined,
+				counts.errors > 0
+					? new vscode.ThemeColor("editorError.foreground")
+					: counts.warnings > 0
+						? new vscode.ThemeColor("editorWarning.foreground")
+						: expandable
+							? new vscode.ThemeColor("symbolIcon.classForeground")
+							: undefined,
 			);
 			treeItem.command = {
 				command: "googleApiLinter.revealLocation",
 				title: "Go to",
 				arguments: [loc.uri, loc.range],
 			};
+			// Annotations carry a namespace; nothing else in this tree does, and
+			// only they have an import and a usage worth acting on.
+			if (loc.namespace) {
+				treeItem.contextValue = "annotation";
+			}
 			if (loc.documentation || loc.detail) {
 				treeItem.tooltip = new vscode.MarkdownString(
 					(loc.documentation
@@ -484,99 +788,257 @@ export class ProtoTreeDataProvider
 		return item;
 	}
 
-	async getChildren(element?: ProtoTreeNode): Promise<ProtoTreeNode[]> {
-		const hasWorkspaceConfig = (await findGapiConfigFile()) !== null;
+	/* -------------------------------------------------------------- *
+	 * Section contents — built on expansion, never on activation
+	 * -------------------------------------------------------------- */
 
-		if (element?.kind === "section") {
-			const scan = await this.getScan();
-			if (element.id === "services") {
-				return scan.services.map((service) => ({
-					kind: "service" as const,
-					service,
-				}));
-			}
-			if (element.id === "resources") {
-				return scan.resources.map((item) => ({
-					kind: "location" as const,
-					item,
-				}));
-			}
-			if (element.id === "mcp") {
-				return [
-					{
-						kind: "mcpSubsection",
-						id: "tools",
-						label: "Tools",
-						count: scan.mcpTools.length,
-					},
-					{
-						kind: "mcpSubsection",
-						id: "elicitation",
-						label: "Elicitation",
-						count: scan.mcpElicitation.length,
-					},
-					{
-						kind: "mcpSubsection",
-						id: "prompts",
-						label: "Prompts",
-						count: scan.mcpPrompts.length,
-					},
-				];
-			}
-			if (element.id === "files") {
-				const protoUris = await findProtoFiles();
-				const fileNodes: ProtoTreeNode[] = [];
-				for (const uri of protoUris) {
-					const diagnostics = this.diagnosticCollection.get(uri) ?? [];
-					const fromUs = diagnostics.filter(
-						(d) => d.source === DIAGNOSTIC_SOURCE,
-					);
-					const errorCount = fromUs.filter(
-						(d) => d.severity === vscode.DiagnosticSeverity.Error,
-					).length;
-					const warningCount = fromUs.filter(
-						(d) => d.severity === vscode.DiagnosticSeverity.Warning,
-					).length;
-					fileNodes.push({ kind: "file", uri, errorCount, warningCount });
-				}
-				fileNodes.sort((a, b) => {
-					if (a.kind !== "file" || b.kind !== "file") {
-						return 0;
-					}
-					return vscode.workspace
-						.asRelativePath(a.uri)
-						.localeCompare(vscode.workspace.asRelativePath(b.uri));
-				});
-				return fileNodes;
-			}
-			if (element.id === "deps") {
-				const [googleapisCommit, protobufCommit] = await Promise.all([
-					this.getGoogleapisCommit(),
-					this.getProtobufCommit(),
-				]);
-				return [
-					{ kind: "dep", name: "googleapis", commit: googleapisCommit },
-					{ kind: "dep", name: "protobuf", commit: protobufCommit },
-				];
-			}
-			if (element.id === "enums") {
-				return scan.others
-					.filter((o) => o.detail === "enum")
-					.map((item) => ({ kind: "location" as const, item }));
-			}
-			if (element.id === "rpcs") {
-				return scan.rpcs.map((item) => ({ kind: "location" as const, item }));
-			}
-			if (element.id === "messages") {
-				return scan.messages.map((item) => ({
-					kind: "location" as const,
-					item,
-				}));
-			}
-			if (element.id === "others") {
-				return scan.others.map((item) => ({ kind: "location" as const, item }));
-			}
+	private async sectionChildren(id: ProtoSectionId): Promise<ProtoTreeNode[]> {
+		const cached = this.sectionCache.get(id);
+		if (cached) {
+			return cached;
+		}
+		const children = await this.buildSection(id);
+		this.sectionCache.set(id, children);
+		// Only count real entries, so a ceiling/cap notice never inflates the badge.
+		this.sectionCounts.set(
+			id,
+			children.filter((child) => child.kind !== "info").length,
+		);
+		return children;
+	}
+
+	/**
+	 * Turns one indexed symbol into the leaf node its section renders.
+	 * @param index - The workspace index
+	 * @param id - Section the symbol belongs to
+	 * @param symbol - The symbol
+	 * @returns The node, or undefined when no location could be derived
+	 */
+	private symbolNode(
+		index: ProtoIndex,
+		id: ProtoSectionId,
+		symbol: IndexedSymbol,
+	): ProtoTreeNode | undefined {
+		if (id === "services") {
+			const service = buildServiceItem(index, symbol);
+			return service ? { kind: "service", service } : undefined;
+		}
+		if (id === "rpcs") {
+			const item = toRpcLocationItem(index, symbol);
+			return item ? { kind: "location", item } : undefined;
+		}
+		if (id === "messages") {
+			const item = toLocationItem(
+				index,
+				symbol,
+				"message",
+				"symbol-class",
+				true,
+			);
+			return item ? { kind: "location", item } : undefined;
+		}
+		if (id === "enums") {
+			const item = toLocationItem(index, symbol, "enum", "symbol-enum");
+			return item ? { kind: "location", item } : undefined;
+		}
+		return undefined;
+	}
+
+	/**
+	 * True when a section should present version groups rather than a flat list.
+	 *
+	 * Grouping is what replaced the old refusal. Above the file ceiling these
+	 * sections used to render a single "exceeds the view limit" notice, which on
+	 * a 9,280-file workspace meant every symbol section was empty; the symbols
+	 * were indexed and reachable by every other provider, just not listed here.
+	 * Version groups keep each rendered level small, so there is nothing left to
+	 * refuse — the ceiling now only decides when to group.
+	 *
+	 * @param grouped - The collected symbols
+	 * @returns True to render groups
+	 */
+	private shouldGroup(grouped: GroupedSymbols): boolean {
+		if (grouped.total === 0) {
+			return false;
+		}
+		return this.overCeiling() || grouped.total > SECTION_GROUPING_THRESHOLD;
+	}
+
+	/**
+	 * The package nodes under one version.
+	 * @param id - Owning section
+	 * @param version - The version group
+	 * @returns One node per package in that version
+	 */
+	private packageGroupNodes(
+		id: ProtoSectionId,
+		version: SymbolVersionGroup,
+	): ProtoTreeNode[] {
+		return version.packages.map((pkg) => ({
+			kind: "symbolGroup" as const,
+			section: id,
+			version: version.key,
+			packageKey: pkg.key,
+			label: pkg.label,
+			count: pkg.symbols.length,
+			icon: "package",
+		}));
+	}
+
+	/**
+	 * One symbol section, grouped by package version when it is large enough to
+	 * need it and flat when it is not.
+	 * @param index - The workspace index
+	 * @param id - Section to build
+	 * @returns The section's children
+	 */
+	private buildSymbolSection(
+		index: ProtoIndex,
+		id: ProtoSectionId,
+	): ProtoTreeNode[] {
+		const spec = SYMBOL_SECTION_SPECS.get(id);
+		if (!spec) {
 			return [];
+		}
+		const grouped = groupSymbolsOfKind(index, spec.kind);
+		this.groupCache.set(id, grouped);
+
+		const nodes: ProtoTreeNode[] = [];
+		if (this.shouldGroup(grouped)) {
+			// A workspace with one release would otherwise get a version level
+			// that is a single node wrapping everything, so skip straight to
+			// packages.
+			if (grouped.versions.length === 1) {
+				nodes.push(...this.packageGroupNodes(id, grouped.versions[0]));
+			} else {
+				for (const version of grouped.versions) {
+					nodes.push({
+						kind: "symbolGroup",
+						section: id,
+						version: version.key,
+						label: version.label,
+						count: version.count,
+						icon: "versions",
+					});
+				}
+			}
+		} else {
+			for (const symbol of grouped.symbols) {
+				const node = this.symbolNode(index, id, symbol);
+				if (node) {
+					nodes.push(node);
+				}
+			}
+		}
+		if (grouped.truncated) {
+			nodes.push(cappedNode(grouped.total, MAX_SECTION_SYMBOLS, spec.noun));
+		}
+		return nodes;
+	}
+
+	private async buildSection(id: ProtoSectionId): Promise<ProtoTreeNode[]> {
+		const index = this.usableIndex();
+		if (SYMBOL_SECTIONS.has(id) && !index) {
+			return [this.noIndexNode()];
+		}
+		if (!index) {
+			return [];
+		}
+
+		if (SYMBOL_SECTION_SPECS.has(id)) {
+			return this.buildSymbolSection(index, id);
+		}
+
+		if (id === "resources") {
+			const collected = await collectResources(index);
+			const nodes: ProtoTreeNode[] = collected.items.map((item) => ({
+				kind: "location" as const,
+				item,
+			}));
+			if (collected.truncated) {
+				nodes.push(
+					infoNode(
+						"Resource scan stopped at its file limit",
+						"list incomplete",
+						"list-flat",
+						"Too many files import `google/api/resource.proto` to confirm every `option (google.api.resource)` cheaply. The list above is a prefix.",
+					),
+				);
+			}
+			return nodes;
+		}
+
+		if (id === "annotations") {
+			const namespaces = collectAnnotationNamespaces(index);
+			if (namespaces.length === 0) {
+				return [
+					infoNode(
+						"No custom annotations found",
+						"no extend blocks indexed",
+						"info",
+						"Annotations are discovered from `extend google.protobuf.*Options` blocks; none were indexed in this workspace.",
+					),
+				];
+			}
+			return namespaces.map((namespace) => ({
+				kind: "annotationNamespace" as const,
+				namespace: namespace.namespace,
+				count: namespace.count,
+			}));
+		}
+
+		return [];
+	}
+
+	async getChildren(element?: ProtoTreeNode): Promise<ProtoTreeNode[]> {
+		if (element?.kind === "section") {
+			return await this.sectionChildren(element.id);
+		}
+
+		if (element?.kind === "annotationNamespace") {
+			const index = this.usableIndex();
+			if (!index) {
+				return [this.noIndexNode()];
+			}
+			const nodes: ProtoTreeNode[] = [];
+			for (const descriptor of collectAnnotationsIn(index, element.namespace)) {
+				const item = annotationLocationItem(index, descriptor);
+				if (item) {
+					nodes.push({ kind: "location", item });
+				}
+			}
+			return nodes;
+		}
+
+		if (element?.kind === "symbolGroup") {
+			const index = this.usableIndex();
+			const grouped = this.groupCache.get(element.section);
+			if (!index || !grouped) {
+				return [];
+			}
+			const version = grouped.versions.find(
+				(entry) => entry.key === element.version,
+			);
+			if (!version) {
+				return [];
+			}
+			if (element.packageKey === undefined) {
+				return this.packageGroupNodes(element.section, version);
+			}
+			const pkg = version.packages.find(
+				(entry) => entry.key === element.packageKey,
+			);
+			if (!pkg) {
+				return [];
+			}
+			const nodes: ProtoTreeNode[] = [];
+			for (const symbol of pkg.symbols) {
+				const node = this.symbolNode(index, element.section, symbol);
+				if (node) {
+					nodes.push(node);
+				}
+			}
+			return nodes;
 		}
 
 		if (element?.kind === "service") {
@@ -623,58 +1085,42 @@ export class ProtoTreeDataProvider
 			];
 		}
 
-		if (element?.kind === "location" && element.item.detail === "message") {
-			try {
-				const doc = await vscode.workspace.openTextDocument(element.item.uri);
-				const { fields, enums } = parseMessageBody(
-					doc,
-					element.item.range.start.line,
-				);
-				const nodes: ProtoTreeNode[] = [];
-				for (const f of fields) {
-					nodes.push({
-						kind: "messageField",
-						label: f.name,
-						type: f.type,
-						uri: element.item.uri,
-						range: f.range,
-					});
-				}
-				for (const e of enums) {
-					nodes.push({
-						kind: "messageEnum",
-						label: e.name,
-						uri: element.item.uri,
-						range: e.range,
-					});
-				}
-				return nodes;
-			} catch {
+		if (element?.kind === "location" && element.item.expandable === true) {
+			const index = this.usableIndex();
+			if (!index) {
 				return [];
 			}
-		}
-
-		if (element?.kind === "mcpSubsection") {
-			const scan = await this.getScan();
-			if (element.id === "tools") {
-				return scan.mcpTools.map((item) => ({
-					kind: "location" as const,
-					item,
-				}));
+			// Straight from the index — the old path opened the document here.
+			const { fields, enums } = collectMessageMembers(index, element.item);
+			const nodes: ProtoTreeNode[] = [];
+			for (const field of fields) {
+				nodes.push({
+					kind: "messageField",
+					label: field.name,
+					type: field.detail ?? "",
+					uri: element.item.uri,
+					range: new vscode.Range(
+						field.line,
+						field.startCol,
+						field.line,
+						field.endCol,
+					),
+				});
 			}
-			if (element.id === "elicitation") {
-				return scan.mcpElicitation.map((item) => ({
-					kind: "location" as const,
-					item,
-				}));
+			for (const nested of enums) {
+				nodes.push({
+					kind: "messageEnum",
+					label: nested.name,
+					uri: element.item.uri,
+					range: new vscode.Range(
+						nested.line,
+						nested.startCol,
+						nested.line,
+						nested.endCol,
+					),
+				});
 			}
-			if (element.id === "prompts") {
-				return scan.mcpPrompts.map((item) => ({
-					kind: "location" as const,
-					item,
-				}));
-			}
-			return [];
+			return nodes;
 		}
 
 		if (element?.kind === "file") {
@@ -703,36 +1149,6 @@ export class ProtoTreeDataProvider
 					folderUri,
 				});
 			}
-			const protoUris = await findProtoFilesInFolder(folderUri);
-			const fileNodes: ProtoTreeNode[] = [];
-			for (const uri of protoUris) {
-				const diagnostics = this.diagnosticCollection.get(uri) ?? [];
-				const fromUs = diagnostics.filter(
-					(d) => d.source === DIAGNOSTIC_SOURCE,
-				);
-				const errorCount = fromUs.filter(
-					(d) => d.severity === vscode.DiagnosticSeverity.Error,
-				).length;
-				const warningCount = fromUs.filter(
-					(d) => d.severity === vscode.DiagnosticSeverity.Warning,
-				).length;
-				fileNodes.push({
-					kind: "file",
-					uri,
-					errorCount,
-					warningCount,
-					folderName: element.name,
-				});
-			}
-			fileNodes.sort((a, b) => {
-				if (a.kind !== "file" || b.kind !== "file") {
-					return 0;
-				}
-				return vscode.workspace
-					.asRelativePath(a.uri)
-					.localeCompare(vscode.workspace.asRelativePath(b.uri));
-			});
-			children.push(...fileNodes);
 			return children;
 		}
 
@@ -740,6 +1156,15 @@ export class ProtoTreeDataProvider
 			return [];
 		}
 
+		return await this.rootNodes();
+	}
+
+	/**
+	 * The root. Costs one config lookup, one `index.stats()` and the linter
+	 * version — no symbol enumeration, no workspace glob when an index exists.
+	 */
+	private async rootNodes(): Promise<ProtoTreeNode[]> {
+		const hasWorkspaceConfig = (await findGapiConfigFile()) !== null;
 		const roots: ProtoTreeNode[] = [];
 
 		if (!hasWorkspaceConfig) {
@@ -749,143 +1174,101 @@ export class ProtoTreeDataProvider
 				detail: "Create workspace.protobuf.yaml",
 				icon: "folder-opened",
 			});
+			return roots;
+		}
+
+		const index = this.usableIndex();
+		if (!index) {
+			roots.push(this.noIndexNode());
 		} else {
-			// Top-level button bar (debugger style): Lint, Format, Reload
+			// Above the ceiling the sections are still listed — they group by
+			// package version instead of refusing. The node only says so.
+			if (this.overCeiling()) {
+				roots.push(this.ceilingNode());
+			}
 			roots.push(
 				{
-					kind: "action",
-					command: "googleApiLinter.lintWorkspace",
-					label: "Lint",
-					icon: "play",
-				},
-				{
-					kind: "action",
-					command: "googleApiLinter.formatAllProtos",
-					label: "Format",
-					icon: "prettier",
-				},
-				{
-					kind: "action",
-					command: "googleApiLinter.restart",
-					label: "Reload",
-					icon: "debug-restart",
-				},
-			);
-
-			const scan = await this.getScan();
-
-			if (scan.services.length > 0) {
-				roots.push({
 					kind: "section",
 					id: "services",
 					label: "Services",
-					count: scan.services.length,
+					count: index.countOfKind("service"),
 					icon: "symbol-interface",
-				});
-			}
-			if (scan.resources.length > 0) {
-				roots.push({
+				},
+				{
+					kind: "section",
+					id: "rpcs",
+					label: "RPCs",
+					count: index.countOfKind("rpc"),
+					icon: "symbol-method",
+				},
+				{
 					kind: "section",
 					id: "resources",
 					label: "Resources",
-					count: scan.resources.length,
-					icon: "symbol-class",
-				});
-			}
-			if (scan.mcp.length > 0) {
-				roots.push({
-					kind: "section",
-					id: "mcp",
-					label: "MCP",
-					count: scan.mcp.length,
-					icon: "symbol-interface",
-				});
-			}
-			if (scan.messages.length > 0) {
-				roots.push({
+					count: this.sectionCounts.get("resources"),
+					icon: "symbol-struct",
+				},
+				{
 					kind: "section",
 					id: "messages",
 					label: "Messages",
-					count: scan.messages.length,
+					count: index.countOfKind("message"),
 					icon: "symbol-class",
-				});
-			}
-			const enumsCount = scan.others.filter((o) => o.detail === "enum").length;
-			if (enumsCount > 0) {
-				roots.push({
+				},
+				{
 					kind: "section",
 					id: "enums",
 					label: "Enums",
-					count: enumsCount,
+					count: index.countOfKind("enum"),
 					icon: "symbol-enum",
-				});
-			}
-			roots.push({
-				kind: "section",
-				id: "deps",
-				label: "Deps",
-				count: 2,
-				icon: "package",
-			});
-			const protoUrisForFiles = await findProtoFiles();
-			roots.push({
-				kind: "section",
-				id: "files",
-				label: "Files",
-				count: protoUrisForFiles.length,
-				icon: "symbol-file",
-			});
-
-			try {
-				const version = await this.getBinaryVersion();
-				const versionStr = version.startsWith("v") ? version : `v${version}`;
-				roots.push({
-					kind: "status",
-					label: "API Linter",
-					version: versionStr,
-					detail: undefined,
-					icon: "symbol-misc",
-				});
-			} catch {
-				roots.push({
-					kind: "status",
-					label: "API Linter",
-					detail: "Not installed or error",
-					icon: "warning",
-				});
-			}
+				},
+			);
 		}
 
 		return roots;
 	}
 }
 
+/**
+ * Creates the Proto view and its commands.
+ *
+ * `index` is optional: without it (or on the `onDemand` tier) the view degrades
+ * to a placeholder tree rather than scanning the workspace itself.
+ */
 export function registerProtoView(
 	context: vscode.ExtensionContext,
 	diagnosticCollection: vscode.DiagnosticCollection,
-	getBinaryVersion: () => Promise<string>,
-	getGoogleapisCommit: () => Promise<string>,
-	getProtobufCommit: () => Promise<string>,
 	resolveTypeToLocation?: (
 		typeName: string,
 		contextUri: vscode.Uri,
 	) => Promise<vscode.Location | null>,
+	index?: ProtoIndex,
+	fileCeiling: number = DEFAULT_PROTO_VIEW_FILE_CEILING,
+	onSelect?: (fqn: string | undefined) => void,
 ): void {
 	const treeDataProvider = new ProtoTreeDataProvider(
 		diagnosticCollection,
-		getBinaryVersion,
-		getGoogleapisCommit,
-		getProtobufCommit,
 		resolveTypeToLocation,
+		index,
+		fileCeiling,
 	);
-
 	// createTreeView registers the built-in collapseAll command (workbench.actions.treeView.<id>.collapseAll)
-	context.subscriptions.push(
-		vscode.window.createTreeView("googleApiLinter.views.proto", {
-			treeDataProvider,
-			showCollapseAll: false, // we contribute our own icon button
-		}),
-	);
+	const treeView = vscode.window.createTreeView(STRUCTURE_VIEW_ID, {
+		treeDataProvider,
+		showCollapseAll: false, // we contribute our own icon button
+	});
+	context.subscriptions.push(treeView);
+
+	if (onSelect) {
+		context.subscriptions.push(
+			treeView.onDidChangeSelection((event) => {
+				onSelect(fqnOfNode(event.selection[0]));
+			}),
+		);
+	}
+	// Pushed after the view so the view is torn down before the provider's
+	// emitter and index subscription go away.
+	context.subscriptions.push(treeDataProvider);
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand("googleApiLinter.refreshProtoView", () => {
@@ -897,7 +1280,7 @@ export function registerProtoView(
 		vscode.commands.registerCommand("googleApiLinter.collapseAll", async () => {
 			try {
 				await vscode.commands.executeCommand(
-					"workbench.actions.treeView.googleApiLinter.views.proto.collapseAll",
+					`workbench.actions.treeView.${STRUCTURE_VIEW_ID}.collapseAll`,
 				);
 			} catch {
 				// Built-in command only exists when view is created with createTreeView; fallback refresh
@@ -910,6 +1293,7 @@ export function registerProtoView(
 		vscode.commands.registerCommand(
 			"googleApiLinter.revealLocation",
 			async (uri: vscode.Uri, range: vscode.Range) => {
+				// One document, for the one node the user clicked. Never in a loop.
 				const doc = await vscode.workspace.openTextDocument(uri);
 				const editor = await vscode.window.showTextDocument(doc, {
 					selection: range,
@@ -928,7 +1312,7 @@ export function registerProtoView(
 		diagRefreshTimer = setTimeout(() => {
 			diagRefreshTimer = undefined;
 			treeDataProvider.refreshPresentation();
-		}, 350);
+		}, DIAGNOSTIC_REFRESH_DEBOUNCE_MS);
 	};
 	context.subscriptions.push(
 		vscode.languages.onDidChangeDiagnostics(() => scheduleDiagRefresh()),
@@ -937,26 +1321,21 @@ export function registerProtoView(
 	const gapiWatcher = vscode.workspace.createFileSystemWatcher(
 		"**/workspace.protobuf.yaml",
 	);
-	gapiWatcher.onDidCreate(() => treeDataProvider.refreshStructure());
-	gapiWatcher.onDidChange(() => treeDataProvider.refreshStructure());
-	gapiWatcher.onDidDelete(() => treeDataProvider.refreshStructure());
+	gapiWatcher.onDidCreate(() => treeDataProvider.refreshStructureSoon());
+	gapiWatcher.onDidChange(() => treeDataProvider.refreshStructureSoon());
+	gapiWatcher.onDidDelete(() => treeDataProvider.refreshStructureSoon());
 	context.subscriptions.push(gapiWatcher);
 
 	const bufWatcher = vscode.workspace.createFileSystemWatcher(
 		"**/{buf.yaml,buf.lock}",
 	);
-	bufWatcher.onDidCreate(() => {
+	const onBufChange = () => {
 		invalidateProtoImportRootsCache();
-		treeDataProvider.refreshStructure();
-	});
-	bufWatcher.onDidChange(() => {
-		invalidateProtoImportRootsCache();
-		treeDataProvider.refreshStructure();
-	});
-	bufWatcher.onDidDelete(() => {
-		invalidateProtoImportRootsCache();
-		treeDataProvider.refreshStructure();
-	});
+		treeDataProvider.refreshStructureSoon();
+	};
+	bufWatcher.onDidCreate(onBufChange);
+	bufWatcher.onDidChange(onBufChange);
+	bufWatcher.onDidDelete(onBufChange);
 	context.subscriptions.push(bufWatcher);
 
 	context.subscriptions.push(

@@ -126,7 +126,7 @@ export class GoogleapisDownloader {
 				https
 					.get(
 						currentUrl,
-						{ headers: { "User-Agent": "vscode-google-api-linter" } },
+						{ headers: { "User-Agent": "vscode-protobuf-aip-linter" } },
 						(response) => {
 							if (
 								response.statusCode === 301 ||

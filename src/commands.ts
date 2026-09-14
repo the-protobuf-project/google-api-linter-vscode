@@ -10,10 +10,154 @@ import {
 	CONFIG_TEMPLATE,
 	WORKSPACE_PROTOBUF_YAML,
 } from "./constants";
+import type { ModuleGraph } from "./index/types";
 import type { ApiLinterProvider } from "./linterProvider";
 import { findProtoFiles, getActiveProtoEditor } from "./utils/fileUtils";
 
 const exec = promisify(cp.exec);
+
+/** Resolved `gapi.bufPath` setting (defaults to `buf` on PATH). */
+const getBufPath = (): string =>
+	vscode.workspace.getConfiguration("gapi").get<string>("bufPath", "buf");
+
+/**
+ * Runs a single `buf format -w <target>` process.
+ * @param bufPath - Path to the buf binary
+ * @param target - File or directory to format in place
+ * @param cwd - Working directory for the child process (module root)
+ */
+const runBufFormatWrite = (
+	bufPath: string,
+	target: string,
+	cwd?: string,
+): Promise<void> =>
+	new Promise((resolve, reject) => {
+		cp.execFile(
+			bufPath,
+			["format", "-w", target],
+			{ cwd, maxBuffer: 10 * 1024 * 1024 },
+			(err, _stdout, stderr) => {
+				if (err) {
+					const detail = typeof stderr === "string" ? stderr.trim() : "";
+					reject(new Error(detail || err.message));
+				} else {
+					resolve();
+				}
+			},
+		);
+	});
+
+/** True when `child` is `parent` or lives underneath it. */
+const isUnder = (child: string, parent: string): boolean => {
+	const c = path.resolve(child);
+	const p = path.resolve(parent);
+	return c === p || c.startsWith(p.endsWith(path.sep) ? p : p + path.sep);
+};
+
+/**
+ * Removes roots that are already covered by an ancestor root. `buf format -w <dir>`
+ * walks the whole subtree, so formatting a parent also formats every nested module;
+ * keeping both would run the same files twice.
+ */
+const dropNestedRoots = (roots: readonly string[]): string[] => {
+	const unique = [...new Set(roots.map((r) => path.resolve(r)))].sort(
+		(a, b) => a.length - b.length,
+	);
+	const kept: string[] = [];
+	for (const root of unique) {
+		if (!kept.some((k) => isUnder(root, k))) {
+			kept.push(root);
+		}
+	}
+	return kept;
+};
+
+/**
+ * Directories that own a buf module, deduplicated and de-nested.
+ * Prefers the shared {@link ModuleGraph} when the integrator supplies one; otherwise
+ * discovers `buf.yaml` files directly (a glob, never `openTextDocument`).
+ */
+const discoverModuleRoots = async (
+	moduleGraph?: ModuleGraph,
+): Promise<string[]> => {
+	const fromGraph = moduleGraph?.modules().map((m) => m.root) ?? [];
+	if (fromGraph.length > 0) {
+		return dropNestedRoots(fromGraph);
+	}
+	const configs = await vscode.workspace.findFiles(
+		"**/buf.yaml",
+		"**/node_modules/**",
+	);
+	return dropNestedRoots(configs.map((uri) => path.dirname(uri.fsPath)));
+};
+
+/** Open `.proto` documents backed by a real file under one of `roots` (or all, when omitted). */
+const openProtoDocumentsUnder = (
+	roots?: readonly string[],
+): vscode.TextDocument[] =>
+	vscode.workspace.textDocuments.filter(
+		(doc) =>
+			!doc.isClosed &&
+			!doc.isUntitled &&
+			doc.uri.scheme === "file" &&
+			doc.uri.fsPath.endsWith(".proto") &&
+			(roots === undefined ||
+				roots.some((root) => isUnder(doc.uri.fsPath, root))),
+	);
+
+/**
+ * `buf format -w` rewrites files on disk. An open buffer with unsaved edits is not
+ * visible to it, and reverting afterwards would throw those edits away — so flush
+ * them first, with the user's consent.
+ * @returns false when the user cancelled; true when it is safe to format.
+ */
+const flushDirtyDocuments = async (
+	docs: readonly vscode.TextDocument[],
+): Promise<boolean> => {
+	const dirty = docs.filter((doc) => doc.isDirty);
+	if (dirty.length === 0) {
+		return true;
+	}
+	const choice = await vscode.window.showWarningMessage(
+		`${dirty.length} open .proto file(s) have unsaved changes. \`buf format -w\` rewrites files on disk, so those buffers must be saved first or their edits would be lost.`,
+		{ modal: true },
+		"Save and Format",
+	);
+	if (choice !== "Save and Format") {
+		return false;
+	}
+	// Bounded by the number of OPEN editors, not by workspace size — these documents
+	// already exist, so no `openTextDocument` call is made here.
+	for (const doc of dirty) {
+		await doc.save();
+	}
+	return true;
+};
+
+/**
+ * Re-reads formatted content into already-open editors.
+ *
+ * WHY revert and not `doc.save()`: the old code saved each document *after* the
+ * on-disk rewrite, which pushed the stale pre-format buffer straight back over the
+ * file buf had just formatted — it silently undid the format for every open file.
+ * The correct direction is disk → buffer. Every document here was saved by
+ * {@link flushDirtyDocuments} first, so it is clean and a revert cannot discard work
+ * even if VS Code applies the command to the active editor rather than the passed URI.
+ */
+const revertOpenDocuments = async (
+	docs: readonly vscode.TextDocument[],
+): Promise<void> => {
+	for (const doc of docs) {
+		try {
+			await vscode.commands.executeCommand(
+				"workbench.action.files.revert",
+				doc.uri,
+			);
+		} catch {
+			// Non-fatal: VS Code also reloads clean editors from disk on its own.
+		}
+	}
+};
 
 /**
  * Creates the command to lint the currently active proto file.
@@ -98,34 +242,24 @@ export const createFormatFileFromTreeCommand = () => {
 				"uri" in element
 			) {
 				const uri = (element as { uri: vscode.Uri }).uri;
-				if (!uri || !uri.fsPath.endsWith(".proto")) {
+				if (!uri?.fsPath.endsWith(".proto")) {
 					return;
 				}
 				const filePath = uri.fsPath;
 				try {
-					const bufPath = vscode.workspace
-						.getConfiguration("gapi")
-						.get<string>("bufPath", "buf");
-					await new Promise<void>((resolve, reject) => {
-						cp.execFile(
-							bufPath,
-							["format", "-w", filePath],
-							{ maxBuffer: 10 * 1024 * 1024 },
-							(err) => {
-								if (err) {
-									reject(err);
-								} else {
-									resolve();
-								}
-							},
-						);
-					});
-					const doc = vscode.workspace.textDocuments.find(
+					// Single file stays a single process — that is already the right shape here.
+					const open = openProtoDocumentsUnder().filter(
 						(d) => d.uri.toString() === uri.toString(),
 					);
-					if (doc) {
-						await doc.save();
+					if (!(await flushDirtyDocuments(open))) {
+						return;
 					}
+					await runBufFormatWrite(
+						getBufPath(),
+						filePath,
+						path.dirname(filePath),
+					);
+					await revertOpenDocuments(open);
 					vscode.window.showInformationMessage(
 						`Formatted ${vscode.workspace.asRelativePath(uri)}`,
 					);
@@ -141,9 +275,17 @@ export const createFormatFileFromTreeCommand = () => {
 
 /**
  * Creates the command to format all proto files in the workspace.
+ *
+ * One `buf format -w` process per MODULE (a directory owning a `buf.yaml`), not per
+ * file. Measured on protobuf-fhir (9,280 protos): per-file is ~1.33 s × 9,280 ≈ 3.4 h
+ * because process startup dominates; a single whole-tree invocation is 1.84 s.
+ * Falls back to one process per workspace folder when no module is found.
+ *
+ * @param moduleGraph - Optional shared module graph; when omitted, `buf.yaml` files
+ *   are discovered with a workspace glob.
  * @returns Disposable command registration
  */
-export const createFormatAllProtosCommand = () => {
+export const createFormatAllProtosCommand = (moduleGraph?: ModuleGraph) => {
 	return vscode.commands.registerCommand(
 		"googleApiLinter.formatAllProtos",
 		async () => {
@@ -154,52 +296,99 @@ export const createFormatAllProtosCommand = () => {
 				);
 				return;
 			}
+
+			const moduleRoots = await discoverModuleRoots(moduleGraph);
+			const usingModules = moduleRoots.length > 0;
+			const targets = usingModules
+				? moduleRoots
+				: dropNestedRoots(
+						(vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath),
+					);
+			if (targets.length === 0) {
+				vscode.window.showWarningMessage(
+					"No buf module or workspace folder found to format.",
+				);
+				return;
+			}
+
+			// Attribute files to targets by longest-prefix match, so the final count is
+			// the real number of files each invocation rewrote — not a per-process tally.
+			const counts = new Map<string, number>(targets.map((t) => [t, 0]));
+			let uncovered = 0;
+			for (const uri of protoUris) {
+				let best: string | undefined;
+				for (const target of targets) {
+					if (
+						isUnder(uri.fsPath, target) &&
+						(best === undefined || target.length > best.length)
+					) {
+						best = target;
+					}
+				}
+				if (best === undefined) {
+					uncovered++;
+				} else {
+					counts.set(best, (counts.get(best) ?? 0) + 1);
+				}
+			}
+
+			const affectedDocs = openProtoDocumentsUnder(targets);
+			if (!(await flushDirtyDocuments(affectedDocs))) {
+				return;
+			}
+
+			const bufPath = getBufPath();
+			const failures: string[] = [];
 			let formatted = 0;
+			let succeededTargets = 0;
+
 			await vscode.window.withProgress(
 				{
 					location: vscode.ProgressLocation.Notification,
-					title: "Formatting proto files",
+					title: usingModules
+						? `Formatting ${protoUris.length} proto file(s) in ${targets.length} module(s)`
+						: `Formatting ${protoUris.length} proto file(s)`,
 					cancellable: false,
 				},
 				async (progress) => {
-					const bufPath = vscode.workspace
-						.getConfiguration("gapi")
-						.get<string>("bufPath", "buf");
-					for (let i = 0; i < protoUris.length; i++) {
-						const uri = protoUris[i];
-						const filePath = uri.fsPath;
-						progress.report({ message: `${i + 1}/${protoUris.length}` });
+					for (let i = 0; i < targets.length; i++) {
+						const target = targets[i];
+						const label = vscode.workspace.asRelativePath(target) || target;
+						progress.report({
+							message: `${i + 1}/${targets.length}: ${label}`,
+						});
 						try {
-							await new Promise<void>((resolve, reject) => {
-								cp.execFile(
-									bufPath,
-									["format", "-w", filePath],
-									{ maxBuffer: 10 * 1024 * 1024 },
-									(err) => {
-										if (err) {
-											reject(err);
-										} else {
-											resolve();
-										}
-									},
-								);
-							});
-							formatted++;
-							const doc = vscode.workspace.textDocuments.find(
-								(d) => d.uri.toString() === uri.toString(),
+							// `.` with cwd = the module root, so buf resolves that module's buf.yaml.
+							await runBufFormatWrite(bufPath, ".", target);
+							formatted += counts.get(target) ?? 0;
+							succeededTargets++;
+						} catch (e) {
+							failures.push(
+								`${label}: ${e instanceof Error ? e.message : String(e)}`,
 							);
-							if (doc) {
-								await doc.save();
-							}
-						} catch {
-							// skip failed file
 						}
 					}
 				},
 			);
-			vscode.window.showInformationMessage(
-				`Formatted ${formatted} proto file(s) with \`buf format -w\`.`,
-			);
+
+			await revertOpenDocuments(affectedDocs);
+
+			const scope = usingModules
+				? `${succeededTargets}/${targets.length} module(s)`
+				: `${succeededTargets}/${targets.length} workspace folder(s)`;
+			const skipped =
+				uncovered > 0
+					? ` ${uncovered} file(s) outside any buf module were skipped.`
+					: "";
+			if (failures.length > 0) {
+				vscode.window.showWarningMessage(
+					`Formatted ${formatted} proto file(s) across ${scope}.${skipped} ${failures.length} failed: ${failures[0]}`,
+				);
+			} else {
+				vscode.window.showInformationMessage(
+					`Formatted ${formatted} proto file(s) across ${scope} with \`buf format -w\`.${skipped}`,
+				);
+			}
 		},
 	);
 };
@@ -236,7 +425,7 @@ export const createConfigCommand = () => {
 };
 
 /** Minimal content for workspace.protobuf.yaml (enables extension and proto paths). */
-const WORKSPACE_PROTOBUF_YAML_TEMPLATE = `# Proto workspace config (Google API Linter)
+const WORKSPACE_PROTOBUF_YAML_TEMPLATE = `# Proto workspace config (Protobuf AIP Linter)
 # See: https://github.com/the-protobuf-project/google-api-linter-vscode
 
 # Optional: list of directories containing .proto files (default: this directory)
@@ -295,7 +484,7 @@ export const createRestartCommand = (
 		async () => {
 			diagnosticCollection.clear();
 			vscode.window.showInformationMessage(
-				"Google API Linter restarted. Re-linting all open proto files...",
+				"Protobuf AIP Linter restarted. Re-linting all open proto files...",
 			);
 
 			for (const editor of vscode.window.visibleTextEditors) {
@@ -305,7 +494,7 @@ export const createRestartCommand = (
 			}
 
 			vscode.window.showInformationMessage(
-				"Google API Linter restart complete!",
+				"Protobuf AIP Linter restart complete!",
 			);
 		},
 	);
@@ -420,7 +609,7 @@ export const createUpdateGoogleapisCommitCommand = () => {
 };
 
 /**
- * Creates the command to reinstall all Google API Linter dependencies.
+ * Creates the command to reinstall all Protobuf AIP Linter dependencies.
  * Deletes the .gapi directory and reinstalls api-linter, googleapis, and protobuf.
  * @param binaryManager - The binary manager instance
  * @returns Disposable command registration
@@ -446,7 +635,7 @@ export const createReinstallCommand = (binaryManager: BinaryManager) => {
 				await vscode.window.withProgress(
 					{
 						location: vscode.ProgressLocation.Notification,
-						title: "Reinstalling Google API Linter dependencies",
+						title: "Reinstalling Protobuf AIP Linter dependencies",
 						cancellable: false,
 					},
 					async (progress) => {
@@ -469,7 +658,7 @@ export const createReinstallCommand = (binaryManager: BinaryManager) => {
 						await binaryManager.ensureProtobuf();
 
 						vscode.window.showInformationMessage(
-							"Successfully reinstalled all Google API Linter dependencies!",
+							"Successfully reinstalled all Protobuf AIP Linter dependencies!",
 						);
 					},
 				);
