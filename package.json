@@ -236,12 +236,12 @@
 			{
 				"command": "googleApiLinter.lintCurrentFile",
 				"title": "Protobuf AIP Linter: Lint Current File",
-				"icon": "$(check)"
+				"icon": "$(checklist)"
 			},
 			{
 				"command": "googleApiLinter.lintWorkspace",
 				"title": "Lint Workspace",
-				"icon": "$(play)",
+				"icon": "$(checklist)",
 				"category": "Protobuf AIP Linter"
 			},
 			{
@@ -288,7 +288,7 @@
 			{
 				"command": "googleApiLinter.lintFileFromTree",
 				"title": "Lint this file",
-				"icon": "$(play)"
+				"icon": "$(checklist)"
 			},
 			{
 				"command": "googleApiLinter.formatFileFromTree",
