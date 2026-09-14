@@ -27,6 +27,7 @@ import {
 	BUF_CACHE_ROOT,
 	hasReferenceCorpus,
 	REFERENCE_PROTO_ROOT,
+	syntheticPath,
 } from "../support/fixtures";
 
 const temporaryRoots: string[] = [];
@@ -152,7 +153,7 @@ describe("listProtoFiles", () => {
 
 describe("toImportPath", () => {
 	test("makes the path other protos must write in an import", () => {
-		const root = path.join(path.sep, "cache", "buf", "files");
+		const root = syntheticPath("cache", "buf", "files");
 		expect(toImportPath(root, path.join(root, "cache", "v1", "a.proto"))).toBe(
 			"cache/v1/a.proto",
 		);
@@ -162,14 +163,14 @@ describe("toImportPath", () => {
 	test("reports a file outside the root relative to it", () => {
 		// Never happens in a scan, but the result must not silently look like a
 		// legal import path.
-		const root = path.join(path.sep, "a", "b");
-		expect(toImportPath(root, path.join(path.sep, "a", "c", "x.proto"))).toBe(
+		const root = syntheticPath("a", "b");
+		expect(toImportPath(root, syntheticPath("a", "c", "x.proto"))).toBe(
 			"../c/x.proto",
 		);
 	});
 
 	test("is empty when the file is the root", () => {
-		const root = path.join(path.sep, "a", "b");
+		const root = syntheticPath("a", "b");
 		expect(toImportPath(root, root)).toBe("");
 	});
 });

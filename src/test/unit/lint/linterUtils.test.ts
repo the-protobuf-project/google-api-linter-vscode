@@ -41,6 +41,7 @@ import {
 	hasReferenceCorpus,
 	listProtos,
 	REFERENCE_PROTO_ROOT,
+	syntheticPath,
 } from "../support/fixtures";
 import { DiagnosticSeverity, workspace } from "../support/vscode";
 
@@ -416,7 +417,7 @@ describe("parseGenericOutput", () => {
 });
 
 describe("parseSyntaxErrorsForFile", () => {
-	const cwd = path.join(path.sep, "work", "repo");
+	const cwd = syntheticPath("work", "repo");
 	const current = path.join(cwd, "proto", "library.proto");
 
 	test("keeps only the errors for the requested file", () => {
@@ -679,7 +680,7 @@ describe("buildLinterArgs", () => {
 
 describe("buildLinterBatches", () => {
 	/** A directory that never exists, so no config or proto-path probing hits it. */
-	const synthetic = path.join(path.sep, "synthetic", "protos");
+	const synthetic = syntheticPath("synthetic", "protos");
 
 	test("documents the caps it chunks against", () => {
 		expect(MAX_BATCH_FILES).toBe(400);

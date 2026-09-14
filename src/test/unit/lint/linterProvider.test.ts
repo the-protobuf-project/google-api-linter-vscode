@@ -45,7 +45,7 @@ import type {
 } from "vscode";
 import { ApiLinterProvider } from "../../../linterProvider";
 import type { LinterOptions, LinterProblem } from "../../../types";
-import { makeDocument } from "../support/fixtures";
+import { makeDocument, syntheticPath } from "../support/fixtures";
 import {
 	type Diagnostic,
 	DiagnosticCollection,
@@ -245,9 +245,8 @@ function stubBinary(provider: ApiLinterProvider, binaryPath: string): void {
 	manager.ensureBinary = async () => binaryPath;
 	manager.ensureGoogleapis = async () => {};
 	manager.ensureProtobuf = async () => {};
-	manager.getGoogleapisDir = () =>
-		path.join(path.sep, "synthetic", "googleapis");
-	manager.getProtobufDir = () => path.join(path.sep, "synthetic", "protobuf");
+	manager.getGoogleapisDir = () => syntheticPath("synthetic", "googleapis");
+	manager.getProtobufDir = () => syntheticPath("synthetic", "protobuf");
 }
 
 /** Options with every toggle off, matching `linterUtils.test.ts`. */
@@ -294,7 +293,7 @@ function jsonOutput(
 }
 
 /** A directory that never exists, so no config or proto-path probing hits it. */
-const SYNTHETIC = path.join(path.sep, "synthetic", "protos");
+const SYNTHETIC = syntheticPath("synthetic", "protos");
 const BOOK_PROTO = path.join(SYNTHETIC, "book.proto");
 
 /** The stub uri for a path, cast to the type the provider is written against. */
@@ -366,7 +365,7 @@ beforeAll(() => {
 	// CI. Bun resolves the real home at startup and ignores a mutated `HOME`, so
 	// the function itself has to be replaced.
 	homedir = spyOn(os, "homedir");
-	homedir.mockReturnValue(path.join(path.sep, "synthetic", "home"));
+	homedir.mockReturnValue(syntheticPath("synthetic", "home"));
 	originalCreate = languages.createDiagnosticCollection;
 	languages.createDiagnosticCollection = (name?: string) => {
 		const collection = new BatchCollection(name);
@@ -868,7 +867,7 @@ describe("lintDocument", () => {
 
 describe("workspace syntax check", () => {
 	/** The open folder every test in this block builds from. */
-	const ROOT = path.join(path.sep, "synthetic", "workspace");
+	const ROOT = syntheticPath("synthetic", "workspace");
 	/** Where a relative `proto/library.proto` in buf's output resolves to. */
 	const LIBRARY = path.normalize(path.join(ROOT, "proto", "library.proto"));
 
@@ -1417,7 +1416,7 @@ describe("dispose", () => {
 
 	test("cancels a debounced check that has not fired", async () => {
 		const { provider } = makeProvider();
-		openWorkspace(path.join(path.sep, "synthetic", "workspace"));
+		openWorkspace(syntheticPath("synthetic", "workspace"));
 
 		provider.scheduleWorkspaceSyntaxCheck(10);
 		provider.dispose();
@@ -1428,7 +1427,7 @@ describe("dispose", () => {
 
 	test("ignores a check scheduled after disposal", async () => {
 		const { provider } = makeProvider();
-		openWorkspace(path.join(path.sep, "synthetic", "workspace"));
+		openWorkspace(syntheticPath("synthetic", "workspace"));
 
 		provider.dispose();
 		provider.scheduleWorkspaceSyntaxCheck(5);
@@ -1445,7 +1444,7 @@ describe("dispose", () => {
 			hang: true,
 		});
 		const { provider, syntax } = makeProvider();
-		openWorkspace(path.join(path.sep, "synthetic", "workspace"));
+		openWorkspace(syntheticPath("synthetic", "workspace"));
 
 		const running = provider.runWorkspaceSyntaxCheck();
 		await settle();
@@ -1486,7 +1485,7 @@ describe("dispose", () => {
 	test("drops a queued check when disposal happens mid-run", async () => {
 		respond = () => ({ code: 0, hang: true });
 		const { provider } = makeProvider();
-		openWorkspace(path.join(path.sep, "synthetic", "workspace"));
+		openWorkspace(syntheticPath("synthetic", "workspace"));
 
 		const running = provider.runWorkspaceSyntaxCheck();
 		await settle();

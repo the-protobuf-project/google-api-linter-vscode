@@ -187,3 +187,20 @@ export function listProtos(root: string): string[] {
 	walk(root);
 	return out;
 }
+
+/**
+ * An absolute path that is absolute on Windows too.
+ *
+ * `path.join(path.sep, "synthetic", "protos")` yields `\\synthetic\\protos` on
+ * Windows — rooted, but with no drive letter. Production code that calls
+ * `path.resolve` on it gets `C:\\synthetic\\protos` back, which no longer equals
+ * what the test built, so fifteen tests failed on `windows-latest` while
+ * passing everywhere else. `path.resolve` qualifies the drive up front, and is
+ * a no-op difference on POSIX.
+ *
+ * @param segments - Path segments below the filesystem root
+ * @returns An absolute path valid on the host platform
+ */
+export function syntheticPath(...segments: string[]): string {
+	return path.resolve(path.sep, ...segments);
+}

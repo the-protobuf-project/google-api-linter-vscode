@@ -166,6 +166,10 @@ afterEach(() => {
 	workspace.getWorkspaceFolder = originalGetWorkspaceFolder;
 	setEnv("BUF_CACHE_DIR", originalEnv.BUF_CACHE_DIR);
 	setEnv("XDG_CACHE_HOME", originalEnv.XDG_CACHE_HOME);
+	// Restored for the same reason as the other two: the cache-root tests clear
+	// it to reach the XDG branch, and on Windows leaving it cleared would change
+	// what every later test resolves.
+	setEnv("LOCALAPPDATA", originalEnv.LOCALAPPDATA);
 	invalidateModuleGraphCache();
 });
 
@@ -180,15 +184,26 @@ afterAll(() => {
  * Manifest parsing
  * ------------------------------------------------------------------ */
 
+/**
+ * The config directory these parser tests pass in.
+ *
+ * Resolved rather than written as a bare POSIX literal, because the parsers
+ * resolve what they are given: on Windows that turns into a drive-qualified
+ * path, so a literal in the expectation compared a POSIX string against a
+ * Windows one and failed there while passing everywhere else. One constant on
+ * both sides keeps input and expectation on the same platform by construction.
+ */
+const REPO = path.resolve("/repo");
+
 describe("parseBufYaml", () => {
 	test("roots a v1 module at the config's own directory", () => {
 		const parsed = parseBufYaml(
 			"version: v1\nname: buf.build/acme/core\ndeps:\n  - buf.build/acme/dep\n",
-			"/repo",
+			REPO,
 		);
 		expect(parsed.version).toBe("v1");
 		expect(parsed.entries).toEqual([
-			{ root: "/repo", name: "buf.build/acme/core" },
+			{ root: REPO, name: "buf.build/acme/core" },
 		]);
 		expect(parsed.deps).toEqual(["buf.build/acme/dep"]);
 	});
@@ -203,35 +218,32 @@ modules:
     name: buf.build/acme/vendor
   - path: .
 `,
-			"/repo",
+			REPO,
 		);
 		expect(parsed.version).toBe("v2");
 		expect(parsed.entries).toEqual([
-			{ root: path.resolve("/repo/proto"), name: "buf.build/acme/core" },
+			{ root: path.join(REPO, "proto"), name: "buf.build/acme/core" },
 			{
-				root: path.resolve("/repo/vendor/external"),
+				root: path.join(REPO, "vendor", "external"),
 				name: "buf.build/acme/vendor",
 			},
-			{ root: "/repo", name: undefined },
+			{ root: REPO, name: undefined },
 		]);
 	});
 
 	test("treats a modules entry with no path as the config's directory", () => {
-		const parsed = parseBufYaml(
-			"version: v2\nmodules:\n  - name: n\n",
-			"/repo",
-		);
-		expect(parsed.entries).toEqual([{ root: "/repo", name: "n" }]);
+		const parsed = parseBufYaml("version: v2\nmodules:\n  - name: n\n", REPO);
+		expect(parsed.entries).toEqual([{ root: REPO, name: "n" }]);
 	});
 
 	test("reads v1beta1 build roots", () => {
 		const parsed = parseBufYaml(
 			"version: v1beta1\nbuild:\n  roots:\n    - proto\n    - vendor\n",
-			"/repo",
+			REPO,
 		);
 		expect(parsed.entries.map((e) => e.root)).toEqual([
-			path.resolve("/repo/proto"),
-			path.resolve("/repo/vendor"),
+			path.join(REPO, "proto"),
+			path.join(REPO, "vendor"),
 		]);
 	});
 
@@ -244,49 +256,49 @@ modules:
   - path: b
     name: buf.build/acme/b
 `,
-			"/repo",
+			REPO,
 		);
 		expect(parsed.entries).toEqual([
-			{ root: path.resolve("/repo/a"), name: "buf.build/acme/default" },
-			{ root: path.resolve("/repo/b"), name: "buf.build/acme/b" },
+			{ root: path.join(REPO, "a"), name: "buf.build/acme/default" },
+			{ root: path.join(REPO, "b"), name: "buf.build/acme/b" },
 		]);
 	});
 
 	test("falls back to one entry when modules is empty or all malformed", () => {
-		expect(parseBufYaml("version: v2\nmodules: []\n", "/repo").entries).toEqual(
-			[{ root: "/repo", name: undefined }],
-		);
+		expect(parseBufYaml("version: v2\nmodules: []\n", REPO).entries).toEqual([
+			{ root: REPO, name: undefined },
+		]);
 		expect(
-			parseBufYaml("version: v2\nmodules:\n  - 7\n  - null\n", "/repo").entries,
-		).toEqual([{ root: "/repo", name: undefined }]);
+			parseBufYaml("version: v2\nmodules:\n  - 7\n  - null\n", REPO).entries,
+		).toEqual([{ root: REPO, name: undefined }]);
 	});
 
 	test("assumes v1 when the version is missing or not a string", () => {
-		expect(parseBufYaml("name: x\n", "/repo").version).toBe("v1");
-		expect(parseBufYaml("version: 2\n", "/repo").version).toBe("v1");
+		expect(parseBufYaml("name: x\n", REPO).version).toBe("v1");
+		expect(parseBufYaml("version: 2\n", REPO).version).toBe("v1");
 	});
 
 	test("degrades to a single root when the YAML is malformed", () => {
-		const parsed = parseBufYaml("version: v2\nmodules: [ : : :\n", "/repo");
+		const parsed = parseBufYaml("version: v2\nmodules: [ : : :\n", REPO);
 		expect(parsed.version).toBe("v1");
-		expect(parsed.entries).toEqual([{ root: "/repo", name: undefined }]);
+		expect(parsed.entries).toEqual([{ root: REPO, name: undefined }]);
 		expect(parsed.deps).toEqual([]);
 	});
 
 	test("degrades for a document that is not a mapping", () => {
-		expect(parseBufYaml("- a\n- b\n", "/repo").entries).toEqual([
-			{ root: "/repo", name: undefined },
+		expect(parseBufYaml("- a\n- b\n", REPO).entries).toEqual([
+			{ root: REPO, name: undefined },
 		]);
-		expect(parseBufYaml("", "/repo").entries).toEqual([
-			{ root: "/repo", name: undefined },
+		expect(parseBufYaml("", REPO).entries).toEqual([
+			{ root: REPO, name: undefined },
 		]);
 	});
 
 	test("keeps only string deps", () => {
-		expect(
-			parseBufYaml("deps:\n  - a\n  - 7\n  - null\n", "/repo").deps,
-		).toEqual(["a"]);
-		expect(parseBufYaml("deps: nope\n", "/repo").deps).toEqual([]);
+		expect(parseBufYaml("deps:\n  - a\n  - 7\n  - null\n", REPO).deps).toEqual([
+			"a",
+		]);
+		expect(parseBufYaml("deps: nope\n", REPO).deps).toEqual([]);
 	});
 });
 
@@ -295,26 +307,26 @@ describe("parseBufWorkYaml", () => {
 		expect(
 			parseBufWorkYaml(
 				"version: v1\ndirectories:\n  - proto\n  - vendor/external\n  - .\n",
-				"/repo",
+				REPO,
 			),
 		).toEqual([
-			path.resolve("/repo/proto"),
-			path.resolve("/repo/vendor/external"),
-			"/repo",
+			path.join(REPO, "proto"),
+			path.join(REPO, "vendor", "external"),
+			REPO,
 		]);
 	});
 
 	test("returns nothing for a missing, empty or malformed directories list", () => {
-		expect(parseBufWorkYaml("version: v1\n", "/repo")).toEqual([]);
-		expect(parseBufWorkYaml("directories: []\n", "/repo")).toEqual([]);
-		expect(parseBufWorkYaml("directories: [ : :\n", "/repo")).toEqual([]);
-		expect(parseBufWorkYaml("", "/repo")).toEqual([]);
+		expect(parseBufWorkYaml("version: v1\n", REPO)).toEqual([]);
+		expect(parseBufWorkYaml("directories: []\n", REPO)).toEqual([]);
+		expect(parseBufWorkYaml("directories: [ : :\n", REPO)).toEqual([]);
+		expect(parseBufWorkYaml("", REPO)).toEqual([]);
 	});
 
 	test("keeps only string entries", () => {
-		expect(
-			parseBufWorkYaml("directories:\n  - proto\n  - 7\n", "/repo"),
-		).toEqual([path.resolve("/repo/proto")]);
+		expect(parseBufWorkYaml("directories:\n  - proto\n  - 7\n", REPO)).toEqual([
+			path.join(REPO, "proto"),
+		]);
 	});
 });
 
@@ -332,7 +344,11 @@ describe("getBufModuleCacheRoot", () => {
 	});
 
 	test("falls back to XDG_CACHE_HOME, then the home directory", () => {
+		// `LOCALAPPDATA` outranks both of these, and CI sets it on Windows —
+		// so without clearing it this asserted a branch the function never
+		// reached there, and only there.
 		setEnv("BUF_CACHE_DIR", undefined);
+		setEnv("LOCALAPPDATA", undefined);
 		setEnv("XDG_CACHE_HOME", "/tmp/xdg");
 		expect(getBufModuleCacheRoot()).toBe(path.join("/tmp/xdg", "buf", SEGMENT));
 
@@ -340,6 +356,35 @@ describe("getBufModuleCacheRoot", () => {
 		expect(getBufModuleCacheRoot()).toBe(
 			path.join(os.homedir(), ".cache", "buf", SEGMENT),
 		);
+	});
+
+	test("prefers LOCALAPPDATA on Windows, which is where buf caches there", () => {
+		// Asserted on every platform by construction rather than by running on
+		// Windows: the branch is what the function does when the variable is
+		// set and the platform says win32, and a POSIX-only suite never
+		// exercised it at all.
+		setEnv("BUF_CACHE_DIR", undefined);
+		setEnv("XDG_CACHE_HOME", undefined);
+		setEnv("LOCALAPPDATA", path.join("C:", "Users", "dev", "AppData", "Local"));
+
+		const root = getBufModuleCacheRoot();
+		if (process.platform === "win32") {
+			expect(root).toBe(
+				path.join(
+					"C:",
+					"Users",
+					"dev",
+					"AppData",
+					"Local",
+					"buf",
+					"cache",
+					SEGMENT,
+				),
+			);
+		} else {
+			// Elsewhere the variable is meaningless and must be ignored.
+			expect(root).toBe(path.join(os.homedir(), ".cache", "buf", SEGMENT));
+		}
 	});
 });
 
