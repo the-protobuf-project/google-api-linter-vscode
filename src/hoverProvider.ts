@@ -73,8 +73,12 @@ export class ApiLinterHoverProvider implements vscode.HoverProvider {
 		diagnostics: vscode.Diagnostic[],
 	): Promise<vscode.MarkdownString> {
 		const markdown = new vscode.MarkdownString();
-		markdown.isTrusted = true;
-		markdown.supportHtml = true;
+		// Neither trusted nor HTML-enabled. This hover appends guidance fetched
+		// from `gapi.rulesDocumentationEndpoint`, a remote host the user can
+		// repoint — so the content is not ours, and rendering it as trusted
+		// markdown with raw HTML would turn a compromised or misconfigured
+		// endpoint into script and `command:` execution inside the editor.
+		// Every link it needs is `https`, which renders under both defaults.
 
 		for (let index = 0; index < diagnostics.length; index++) {
 			if (index > 0) {

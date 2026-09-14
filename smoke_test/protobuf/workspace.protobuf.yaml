@@ -1,4 +1,4 @@
-# Proto workspace config (Google API Linter)
+# Proto workspace config (Protobuf AIP Linter)
 # See: https://github.com/the-protobuf-project/google-api-linter-vscode
 
 # Optional: list of directories containing .proto files (default: this directory)

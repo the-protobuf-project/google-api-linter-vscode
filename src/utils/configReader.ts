@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { getBufProtoPaths } from "./bufConfigReader";
+import { parse as parseYaml } from "yaml";
+import { getModuleGraph } from "./moduleGraph";
 
 /**
  * Configuration from workspace.protobuf.yaml
@@ -37,8 +38,28 @@ export async function findGapiConfigFileInFolder(
 	}
 }
 
+/** Accept either a scalar or a list for `proto_path` / `proto_paths`. */
+function collectPathValues(value: unknown, into: string[]): void {
+	if (typeof value === "string") {
+		const trimmed = value.trim();
+		if (trimmed) {
+			into.push(trimmed);
+		}
+		return;
+	}
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			collectPathValues(item, into);
+		}
+	}
+}
+
 /**
- * Reads and parses workspace.protobuf.yaml configuration
+ * Reads and parses workspace.protobuf.yaml configuration.
+ *
+ * Accepts `proto_path` and `proto_paths`, each as a scalar or a list. Paths are
+ * resolved relative to the config file. Falls back to the config's own
+ * directory when neither key is present.
  */
 export async function readGapiConfig(
 	configUri: vscode.Uri,
@@ -46,64 +67,25 @@ export async function readGapiConfig(
 	try {
 		const content = await vscode.workspace.fs.readFile(configUri);
 		const text = Buffer.from(content).toString("utf8");
-
-		// Simple YAML parsing for proto_path / proto_paths
-		const lines = text.split("\n");
-		const protoPaths: string[] = [];
 		const configDir = path.dirname(configUri.fsPath);
-		let inProtoPathsList = false;
 
-		for (const line of lines) {
-			const trimmed = line.trim();
+		let doc: Record<string, unknown> = {};
+		const parsed = parseYaml(text);
+		if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+			doc = parsed as Record<string, unknown>;
+		}
 
-			// Detect start of a proto_paths list block
-			if (/^proto_paths\s*:/.test(trimmed)) {
-				inProtoPathsList = true;
-				// Check for inline value: proto_paths: some/path
-				const inlineMatch = trimmed.match(
-					/^proto_paths\s*:\s*["']?([^"'\n#]+)["']?/,
-				);
-				const inlinePath = inlineMatch?.[1]?.trim();
-				if (inlinePath) {
-					const p = inlinePath;
-					protoPaths.push(path.resolve(configDir, p));
-				}
-				continue;
-			}
+		const relative: string[] = [];
+		collectPathValues(doc.proto_paths, relative);
+		collectPathValues(doc.proto_path, relative);
 
-			// Scalar form: proto_path: some/path
-			const scalarMatch = trimmed.match(
-				/^proto_path\s*:\s*["']?([^"'\n#]+)["']?/,
-			);
-			if (scalarMatch) {
-				inProtoPathsList = false;
-				const p = scalarMatch[1].trim();
-				protoPaths.push(path.resolve(configDir, p));
-				continue;
-			}
-
-			// List item inside proto_paths block: - some/path
-			if (inProtoPathsList && trimmed.startsWith("-")) {
-				const listItem = trimmed
-					.replace(/^-\s*/, "")
-					.replace(/["']/g, "")
-					.trim();
-				if (listItem) {
-					protoPaths.push(path.resolve(configDir, listItem));
-				}
-				continue;
-			}
-
-			// Any non-indented, non-list-item line that has a key resets list mode
-			if (
-				inProtoPathsList &&
-				line.length > 0 &&
-				line[0] !== " " &&
-				line[0] !== "\t" &&
-				!trimmed.startsWith("-") &&
-				!trimmed.startsWith("#")
-			) {
-				inProtoPathsList = false;
+		const protoPaths: string[] = [];
+		const seen = new Set<string>();
+		for (const item of relative) {
+			const resolved = path.resolve(configDir, item);
+			if (!seen.has(resolved)) {
+				seen.add(resolved);
+				protoPaths.push(resolved);
 			}
 		}
 
@@ -122,37 +104,46 @@ export async function readGapiConfig(
 	}
 }
 
+/** `workspace.protobuf.yaml` paths, when such a file exists. */
+async function getGapiConfigProtoPaths(): Promise<string[]> {
+	const configUri = await findGapiConfigFile();
+	if (!configUri) {
+		return [];
+	}
+	const config = await readGapiConfig(configUri);
+	return config ? config.protoPaths : [];
+}
+
+function dedupeResolved(candidates: readonly string[]): string[] {
+	const out: string[] = [];
+	const seen = new Set<string>();
+	for (const candidate of candidates) {
+		const resolved = path.resolve(candidate);
+		if (!seen.has(resolved)) {
+			seen.add(resolved);
+			out.push(resolved);
+		}
+	}
+	return out;
+}
+
 /**
- * Gets proto paths from workspace.protobuf.yaml, buf.yaml (modules + deps), or falls back to workspace root.
- * When buf.yaml exists, runs buf mod download and buf export so deps (e.g. googleapis, grpc-mcp-gateway) are included for linting.
+ * Whole-workspace proto paths: `workspace.protobuf.yaml` entries, then every
+ * module root and dependency cache directory in the module graph, then the
+ * workspace root as a last resort.
+ *
+ * Prefer `getProtoPathsForFile` wherever the file is known — this list mixes
+ * roots from every module in the workspace, which is exactly the bug that made
+ * a file in one module resolve against another module's roots.
  */
 export async function getProtoPaths(outputChannel?: {
 	appendLine: (s: string) => void;
 }): Promise<string[]> {
-	const allPaths: string[] = [];
-	const seen = new Set<string>();
-
-	const configUri = await findGapiConfigFile();
-	if (configUri) {
-		const config = await readGapiConfig(configUri);
-		if (config) {
-			for (const p of config.protoPaths) {
-				if (!seen.has(p)) {
-					seen.add(p);
-					allPaths.push(p);
-				}
-			}
-		}
-	}
-
-	const bufPaths = await getBufProtoPaths(outputChannel);
-	for (const p of bufPaths) {
-		const normalized = path.resolve(p);
-		if (!seen.has(normalized)) {
-			seen.add(normalized);
-			allPaths.push(normalized);
-		}
-	}
+	const graph = await getModuleGraph(outputChannel);
+	const allPaths = dedupeResolved([
+		...(await getGapiConfigProtoPaths()),
+		...graph.allProtoPaths(),
+	]);
 
 	if (allPaths.length === 0) {
 		const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -162,4 +153,21 @@ export async function getProtoPaths(outputChannel?: {
 	}
 
 	return allPaths;
+}
+
+/**
+ * Proto paths for one file: its own module's roots plus that module's
+ * dependencies, with `workspace.protobuf.yaml` entries in front. Falls back to
+ * the whole-workspace list when the file belongs to no module.
+ */
+export async function getProtoPathsForFile(
+	absolutePath: string,
+	outputChannel?: { appendLine: (s: string) => void },
+): Promise<string[]> {
+	const graph = await getModuleGraph(outputChannel);
+	const modulePaths = graph.protoPathsFor(path.resolve(absolutePath));
+	if (modulePaths.length === 0) {
+		return getProtoPaths(outputChannel);
+	}
+	return dedupeResolved([...(await getGapiConfigProtoPaths()), ...modulePaths]);
 }

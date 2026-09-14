@@ -1,0 +1,22 @@
+{
+	"compilerOptions": {
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"target": "ES2022",
+		"lib": ["ES2022", "DOM", "DOM.Iterable"],
+		"rootDir": "src",
+		"strict": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"verbatimModuleSyntax": true,
+		"isolatedModules": true,
+		"types": []
+	},
+	"include": [
+		"src/webview/**/*.ts",
+		"src/webview/**/*.svelte",
+		"src/shared/**/*.ts"
+	],
+	"exclude": ["node_modules"]
+}

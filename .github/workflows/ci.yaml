@@ -31,6 +31,13 @@ jobs:
       - name: Compile TypeScript
         run: bun run compile
 
+      # Unit tests run without the extension host: `vscode` resolves to a stub.
+      # Tests that need the protobuf-fhir corpus next door skip when it is
+      # absent, which is always the case in CI -- they are a local guard, not a
+      # CI one, and must never fail the build for being unable to find it.
+      - name: Unit tests
+        run: bun run test
+
       - name: Package extension
         run: bun run package
 

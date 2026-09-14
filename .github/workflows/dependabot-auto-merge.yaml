@@ -1,0 +1,105 @@
+# Auto-merges Dependabot PRs once every other check on the PR has passed.
+#
+# Why this waits by hand instead of using `gh pr merge --auto`: GitHub's
+# auto-merge needs "Allow auto-merge" on the repo AND required status checks in
+# branch protection to have anything to wait for. `main` is unprotected here, so
+# `--auto` would merge the moment it was called -- green CI or not. This job
+# polls the PR's checks itself and merges only on a clean sweep.
+name: Dependabot auto-merge
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# pull_request_target hands out a write-scoped token, so this workflow must
+# never check out or execute the PR's code. It only ever calls `gh`.
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Every bump merges on green, as asked. To hold majors back for a manual
+      # look instead, uncomment this step.
+      # - name: Hold major bumps for review
+      #   if: steps.meta.outputs.update-type == 'version-update:semver-major'
+      #   run: |
+      #     echo "::notice::${{ steps.meta.outputs.dependency-names }} is a major bump -- leaving it open"
+      #     exit 1
+
+      - name: Wait for CI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          # This workflow is itself a check on the PR. Waiting on it would
+          # deadlock, so it is filtered out by name -- keep this in step with
+          # the `name:` at the top of the file.
+          SELF: Dependabot auto-merge
+          POLL_SECONDS: '20'
+          WAIT_SECONDS: '1800'
+        run: |
+          set -euo pipefail
+          deadline=$(( $(date +%s) + WAIT_SECONDS ))
+
+          while :; do
+            all=$(gh pr checks "$PR" --json name,workflow,bucket 2>/dev/null || echo '[]')
+            others=$(jq --arg self "$SELF" '[.[] | select(.workflow != $self)]' <<<"$all")
+
+            total=$(jq 'length' <<<"$others")
+            pending=$(jq '[.[] | select(.bucket == "pending")] | length' <<<"$others")
+            broken=$(jq '[.[] | select(.bucket == "fail" or .bucket == "cancel")] | length' <<<"$others")
+
+            if [ "$broken" -gt 0 ]; then
+              echo "::error::CI did not pass -- leaving PR #${PR} open."
+              jq -r '.[] | select(.bucket == "fail" or .bucket == "cancel")
+                     | "  \(.bucket | ascii_upcase)  \(.workflow // "-") / \(.name)"' <<<"$others"
+              exit 1
+            fi
+
+            # Fails closed: if no checks ever register, this times out unmerged.
+            if [ "$total" -gt 0 ] && [ "$pending" -eq 0 ]; then
+              echo "All ${total} check(s) green."
+              jq -r '.[] | "  \(.bucket)  \(.workflow // "-") / \(.name)"' <<<"$others"
+              break
+            fi
+
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::Timed out after ${WAIT_SECONDS}s with ${pending}/${total} check(s) still running."
+              exit 1
+            fi
+
+            echo "waiting -- ${pending}/${total} check(s) still running"
+            sleep "$POLL_SECONDS"
+          done
+
+      - name: Merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # Re-read state: the PR may have been merged, closed, or gone
+          # conflicted while the checks were running.
+          state=$(gh pr view "$PR" --json state -q .state)
+          if [ "$state" != "OPEN" ]; then
+            echo "::notice::PR #${PR} is ${state} -- nothing to do."
+            exit 0
+          fi
+          gh pr merge "$PR" --squash --delete-branch

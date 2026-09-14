@@ -10,8 +10,10 @@
 		"esModuleInterop": true,
 		"skipLibCheck": true,
 		"forceConsistentCasingInFileNames": true,
-		"resolveJsonModule": true
+		"resolveJsonModule": true,
+		"noEmit": false,
+		"types": ["node", "vscode", "bun"]
 	},
 	"include": ["src/**/*"],
-	"exclude": ["node_modules", ".vscode-test"]
+	"exclude": ["node_modules", ".vscode-test", "src/webview"]
 }

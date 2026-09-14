@@ -1,9 +1,88 @@
 import * as cp from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
 type FormatterKind = "buf" | "clang-format" | "simple";
+
+/* ------------------------------------------------------------------ *
+ * Temp-file strategy for `buf format`
+ *
+ * The old code wrote `.gapi-format-temp-<ts>.proto` INTO the user's source
+ * directory on every format (including every format-on-save), then deleted it.
+ * On a large repo that churns the source tree: file watchers fire, `**\/*.proto`
+ * globs pick it up, and a concurrent `buf build` can read it mid-write.
+ *
+ * Fix: the scratch file lives in a per-session directory under os.tmpdir(), so it
+ * is outside every workspace glob and watcher. Config discovery is preserved
+ * EXPLICITLY instead of positionally — we locate the governing `buf.yaml` by
+ * walking up from the real file and pass it via `buf format --config`, which is
+ * capability-probed once per buf binary (`buf format --help`) before use and
+ * simply omitted if the installed buf does not have it. Verified against buf
+ * 1.72.0: `--config` exists, and formatting a file in os.tmpdir() with an
+ * out-of-tree `--config` succeeds.
+ *
+ * The `.proto` extension is kept deliberately: `buf format` rejects any other
+ * extension ("not a directory"). Being in os.tmpdir() is what makes it invisible
+ * to workspace globs, not the name.
+ * ------------------------------------------------------------------ */
+
+/** Per-session scratch directory, created lazily outside the workspace. */
+let sessionTempDir: string | null = null;
+let tempFileCounter = 0;
+
+const getSessionTempDir = (): string => {
+	if (sessionTempDir === null || !fs.existsSync(sessionTempDir)) {
+		sessionTempDir = fs.mkdtempSync(path.join(os.tmpdir(), "gapi-format-"));
+	}
+	return sessionTempDir;
+};
+
+/** Cached `buf format --config` support, keyed by buf binary path. */
+const configFlagSupport = new Map<string, Promise<boolean>>();
+
+const supportsConfigFlag = (bufPath: string): Promise<boolean> => {
+	let probe = configFlagSupport.get(bufPath);
+	if (probe === undefined) {
+		probe = new Promise<boolean>((resolve) => {
+			cp.execFile(
+				bufPath,
+				["format", "--help"],
+				{ maxBuffer: 1024 * 1024 },
+				(err, stdout, stderr) => {
+					const help = `${stdout ?? ""}${stderr ?? ""}`;
+					resolve(
+						help.length > 0 && !err ? /(^|\s)--config\b/.test(help) : false,
+					);
+				},
+			);
+		});
+		configFlagSupport.set(bufPath, probe);
+	}
+	return probe;
+};
+
+/** Nearest `buf.yaml` at or above `startDir`, bounded by the owning workspace folder. */
+const findGoverningBufConfig = (startDir: string): string | undefined => {
+	const stop = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(startDir))
+		?.uri.fsPath;
+	let dir = path.resolve(startDir);
+	for (;;) {
+		const candidate = path.join(dir, "buf.yaml");
+		if (fs.existsSync(candidate)) {
+			return candidate;
+		}
+		if (stop !== undefined && dir === path.resolve(stop)) {
+			return undefined;
+		}
+		const parent = path.dirname(dir);
+		if (parent === dir) {
+			return undefined;
+		}
+		dir = parent;
+	}
+};
 
 /**
  * DocumentFormattingEditProvider for .proto files.
@@ -84,50 +163,60 @@ export class ProtoFormatProvider
 		});
 	}
 
-	/** Always format from document content (temp file) so we never overwrite buffer with stale disk content. */
+	/**
+	 * Always format from document content (scratch file) so we never overwrite the
+	 * buffer with stale disk content. See the temp-file strategy note at the top of
+	 * this file: the scratch file lives in os.tmpdir(), never in the source tree.
+	 */
 	private async formatWithBuf(
 		document: vscode.TextDocument,
 	): Promise<string | null> {
 		let tempPath: string | null = null;
 		try {
-			// Find the directory of the current file. Creating the temp file in the same directory
-			// ensures that 'buf' can find the local 'buf.yaml' or project config.
-			const fileDir = path.dirname(document.uri.fsPath);
+			const sourcePath = document.uri.fsPath;
+			const sourceDir = path.dirname(sourcePath);
 
-			// Ensure the directory exists (it should, as it's an open file)
-			if (!fs.existsSync(fileDir)) {
-				return null;
-			}
-
-			const ext = document.uri.fsPath.endsWith(".proto") ? "" : ".proto";
-			const tmpFile = path.join(
-				fileDir,
-				`.gapi-format-temp-${Date.now()}${ext}`,
+			// Keep the original basename so buf's error messages stay recognisable;
+			// the `.proto` extension is mandatory (buf rejects anything else).
+			const base =
+				path
+					.basename(sourcePath)
+					.replace(/\.proto$/i, "")
+					.replace(/[^A-Za-z0-9._-]/g, "_") || "unnamed";
+			tempFileCounter += 1;
+			tempPath = path.join(
+				getSessionTempDir(),
+				`${base}-${process.pid}-${tempFileCounter}.proto`,
 			);
-
-			fs.writeFileSync(tmpFile, document.getText(), "utf8");
-			tempPath = tmpFile;
+			fs.writeFileSync(tempPath, document.getText(), "utf8");
 
 			const buf = this.getBufPath();
+			const args = ["format", "-w"];
+			const config = findGoverningBufConfig(sourceDir);
+			if (config !== undefined && (await supportsConfigFlag(buf))) {
+				args.push("--config", config);
+			}
+			args.push(tempPath);
+
+			// Run from the config's directory (or the source directory) so anything
+			// relative in that config resolves exactly as it would for a real build.
+			const configDir = config !== undefined ? path.dirname(config) : sourceDir;
+			const cwd = fs.existsSync(configDir) ? configDir : undefined;
+
 			await new Promise<void>((resolve, reject) => {
-				cp.execFile(
-					buf,
-					["format", "-w", tmpFile],
-					{ maxBuffer: 10 * 1024 * 1024 },
-					(err) => {
-						if (err) {
-							reject(err);
-						} else {
-							resolve();
-						}
-					},
-				);
+				cp.execFile(buf, args, { cwd, maxBuffer: 10 * 1024 * 1024 }, (err) => {
+					if (err) {
+						reject(err);
+					} else {
+						resolve();
+					}
+				});
 			});
-			return fs.readFileSync(tmpFile, "utf8");
+			return fs.readFileSync(tempPath, "utf8");
 		} catch {
 			return null;
 		} finally {
-			if (tempPath && fs.existsSync(tempPath)) {
+			if (tempPath !== null && fs.existsSync(tempPath)) {
 				try {
 					fs.unlinkSync(tempPath);
 				} catch {}

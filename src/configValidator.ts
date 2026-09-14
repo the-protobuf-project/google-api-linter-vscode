@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
-const CONFIG_DIAGNOSTIC_SOURCE = "google-api-linter (config)";
+const CONFIG_DIAGNOSTIC_SOURCE = "protobuf-aip-linter (config)";
 
 const KNOWN_API_LINTER_KEYS = new Set([
 	"disabled_rules",

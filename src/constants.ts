@@ -2,7 +2,7 @@
  * Default configuration template for .api-linter.yaml files.
  * Contains commented examples of common configuration options.
  */
-export const CONFIG_TEMPLATE = `# Google API Linter Configuration
+export const CONFIG_TEMPLATE = `# Protobuf AIP Linter Configuration
 # See: https://linter.aip.dev/configuration
 # Config must be an array of rule blocks (api-linter lint.Configs).
 
@@ -29,10 +29,10 @@ export const CONFIG_FILE_NAME = ".api-linter.yaml";
 export const WORKSPACE_PROTOBUF_YAML = "workspace.protobuf.yaml";
 
 /** Display name of the extension */
-export const EXTENSION_NAME = "Google API Linter";
+export const EXTENSION_NAME = "Protobuf AIP Linter";
 
 /** Source identifier for diagnostics */
-export const DIAGNOSTIC_SOURCE = "google-api-linter";
+export const DIAGNOSTIC_SOURCE = "protobuf-aip-linter";
 
 /** Name of the output channel for logging */
-export const OUTPUT_CHANNEL_NAME = "Google API Linter";
+export const OUTPUT_CHANNEL_NAME = "Protobuf AIP Linter";
