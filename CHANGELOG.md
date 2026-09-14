@@ -73,8 +73,9 @@ All notable changes to this extension are documented here. The format follows
 - Resources and messages no longer share an icon and colour.
 - Every toolbar icon says what its action does. Linting and code generation no
   longer share the play icon: play means only "run codegen", which writes files.
-  Linting takes scales, since an AIP linter measures against a published rule
-  set, and formatting takes the paint can VS Code uses for the same action.
+  Linting takes the inspect glyph, which the codicon set tags "check, examine,
+  analyze" — what a linter does. Formatting takes the braces, since it is the
+  one of the two actions genuinely about the shape of the code.
 - `buf.gen.yaml` is found anywhere in the workspace, not only beside a
   `buf.yaml`.
 - Line endings are normalised, so Windows agrees with the other platforms.
