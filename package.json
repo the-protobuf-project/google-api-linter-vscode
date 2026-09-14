@@ -236,18 +236,18 @@
 			{
 				"command": "googleApiLinter.lintCurrentFile",
 				"title": "Protobuf AIP Linter: Lint Current File",
-				"icon": "$(checklist)"
+				"icon": "$(law)"
 			},
 			{
 				"command": "googleApiLinter.lintWorkspace",
 				"title": "Lint Workspace",
-				"icon": "$(checklist)",
+				"icon": "$(law)",
 				"category": "Protobuf AIP Linter"
 			},
 			{
 				"command": "googleApiLinter.formatAllProtos",
 				"title": "Format All Proto Files",
-				"icon": "$(symbol-namespace)",
+				"icon": "$(paintcan)",
 				"category": "Protobuf AIP Linter"
 			},
 			{
@@ -288,12 +288,12 @@
 			{
 				"command": "googleApiLinter.lintFileFromTree",
 				"title": "Lint this file",
-				"icon": "$(checklist)"
+				"icon": "$(law)"
 			},
 			{
 				"command": "googleApiLinter.formatFileFromTree",
 				"title": "Format this file",
-				"icon": "$(symbol-namespace)"
+				"icon": "$(paintcan)"
 			},
 			{
 				"command": "googleApiLinter.reportIssue",

@@ -45,9 +45,10 @@ All notable changes to this extension are documented here. The format follows
 - Toolbar buttons appear: a `view/title` command renders as a button only when
   it carries an icon, and Lint and Format had none.
 - Resources and messages no longer share an icon and colour.
-- Linting and code generation no longer share the play icon. Play now means
-  only "run codegen", which writes files; linting inspects and reports, and
-  takes a checklist glyph.
+- Every toolbar icon says what its action does. Linting and code generation no
+  longer share the play icon: play means only "run codegen", which writes files.
+  Linting takes scales, since an AIP linter measures against a published rule
+  set, and formatting takes the paint can VS Code uses for the same action.
 - `buf.gen.yaml` is found anywhere in the workspace, not only beside a
   `buf.yaml`.
 - Line endings are normalised, so Windows agrees with the other platforms.
