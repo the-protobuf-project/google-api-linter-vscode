@@ -126,9 +126,11 @@ export class ProblemsProvider
 			if (node.docUrl) {
 				lines.push("", `[Rule documentation](${node.docUrl})`);
 			}
+			// Untrusted on purpose. `https` links render without it — only
+			// `command:` links need trust, and enabling it here would extend that
+			// to the linter's own messages, which are text this extension does
+			// not author.
 			item.tooltip = new vscode.MarkdownString(lines.join("\n"));
-			// Markdown tooltips do not follow links unless told they are trusted.
-			item.tooltip.isTrusted = true;
 			return item;
 		}
 

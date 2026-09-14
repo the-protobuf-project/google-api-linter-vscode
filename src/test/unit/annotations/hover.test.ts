@@ -242,7 +242,7 @@ describe("annotation card", () => {
 		);
 	});
 
-	test("trusts the card so the footer link is clickable", () => {
+	test("never trusts the card, whose text comes from the workspace", () => {
 		const { hover } = hoverAt(
 			DEMO_REGISTRY,
 			`${DEMO_HEADER}message M {
@@ -254,7 +254,12 @@ describe("annotation card", () => {
 			isTrusted: boolean;
 			supportHtml: boolean;
 		};
-		expect(contents.isTrusted).toBe(true);
+		// The card embeds doc comments and examples read out of workspace
+		// protos. Trusted markdown activates `command:` links, so a comment in
+		// someone else's repository could put a live command in this hover.
+		// The footer links with `file://`, which renders untrusted, so nothing
+		// here ever needed it.
+		expect(contents.isTrusted).toBeFalsy();
 		expect(contents.supportHtml).toBe(false);
 	});
 

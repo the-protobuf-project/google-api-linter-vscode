@@ -17,8 +17,10 @@ export class ProtoSymbolHoverProvider implements vscode.HoverProvider {
 			return null;
 		}
 
+		// Untrusted: this hover renders symbol names and doc comments taken from
+		// the workspace, and trusted markdown would make a `command:` link
+		// written into a proto comment clickable. No link here needs it.
 		const md = new vscode.MarkdownString();
-		md.isTrusted = true;
 
 		switch (symbol.kind) {
 			case "message":

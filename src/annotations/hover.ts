@@ -36,8 +36,12 @@ import {
  */
 function toHover(markdown: string, range: vscode.Range): vscode.Hover {
 	const value = new vscode.MarkdownString(markdown);
-	// Card footers link to the declaring file, which requires trusted markdown.
-	value.isTrusted = true;
+	// Deliberately untrusted. The card embeds doc comments and examples read
+	// out of workspace `.proto` files, which are attacker-controlled the moment
+	// someone opens a repository they did not write. Trusted markdown activates
+	// `command:` links, so a comment containing one would become a live
+	// command the reader could click. Nothing here needs it: the footer links
+	// with `file://`, which renders untrusted.
 	value.supportHtml = false;
 	return new vscode.Hover(value, range);
 }

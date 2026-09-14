@@ -514,7 +514,8 @@ export class AnnotationCompletionProvider
 				definitionSite(registry, item.descriptor),
 			),
 		);
-		markdown.isTrusted = true;
+		// Untrusted: the body is built from annotation docs and examples found in
+		// workspace protos. See the note in `annotations/hover.ts`.
 		item.documentation = markdown;
 		return item;
 	}
