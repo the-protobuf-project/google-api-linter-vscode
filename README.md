@@ -1,521 +1,234 @@
-# Protobuf AIP Linter for VS Code
+# Protobuf AIP Linter
 
-## Features
+Design Protocol Buffer APIs that follow the [Google AIPs](https://google.aip.dev),
+without leaving the editor.
 
-### Linting & diagnostics
-- **Real-time Linting**: Automatically validates `.proto` files as you type or save
-- **Inline Diagnostics**: Displays linting errors and warnings directly in the editor
-- **Hover Documentation**: Shows detailed rule information when hovering over diagnostics
-- **The Protobuf Project (Activity Bar)**: four views rather than one tree.
-  **Structure** lists Services (expand to RPCs, then Request/Response), Resources, Messages, Enums and Annotations, each row carrying its own finding counts; its toolbar has **Lint**, **Format**, **Search** and **Collapse All**, with Report Issue, API Report and Details-to-side in the overflow menu. **Problems** groups findings by rule, so a rule firing 34 times reads as one row. **Dependencies** reads `buf.yaml`, `buf.lock` and `buf.gen.yaml`, and every codegen plugin can be run on its own. **Registries** lists the schema registries you browse. Click any symbol to jump to it; right-click a file to Lint or Format it
-- **Details**: a symbol's fields, annotations and the rules that fired on it, in the sidebar or as an editor tab beside your code. Option keys that are *absent* are shown too, since that is usually what the rule is complaining about
-- **Proto Registry**: a searchable browser for Buf Schema Registry modules, opened as an editor tab. Self-hosted registries are supported through `gapi.registries`. Adding a dependency shows the exact `buf.yaml` edit before making it
-- **Generate API Report**: whole-workspace Markdown with per-service Mermaid diagrams, shared-type analysis and findings by rule — for a pull request or a review
-- **Capture All Errors**: every finding as a shareable Markdown report with the offending source lines quoted
-- **Check Setup**: inspects the toolchain — api-linter, googleapis, the protobuf well-known types, buf, clang-format — and reports what is installed, what is missing, and the command to install it on your platform. A status-bar item shows the api-linter version the way a Go file shows its Go version; click it to re-run the check
-- **Install Missing Tools**: downloads api-linter, googleapis and the protobuf well-known types into `~/.gapi`, and offers a terminal command for anything a package manager owns. A force variant reinstalls what is already present
-- **Create Starter Project**: a working AIP Todo API — the resource, the five standard methods with their HTTP bindings, and buf configuration. It lints clean as written, so the first finding you see is one you caused
-- **Set Up GitHub Actions CI**: a workflow built on [setup-google-api-linter](https://github.com/the-protobuf-project/setup-google-api-linter) that annotates each problem inline on the pull request diff
-- **Status Bar**: Shows "Proto" or "Proto: X error(s), Y warning(s)"; click to open the Proto view
-- **Config File Validation**: Warnings for unknown keys and invalid paths in `.api-linter.yaml` and `workspace.protobuf.yaml`
+The extension runs [`api-linter`](https://github.com/googleapis/api-linter)
+against your protos and then does the part a linter cannot: it explains what a
+finding means, shows which symbol it belongs to, and — where the linter states
+the fix — offers to write it.
 
-### Editor support
-- **Syntax Highlighting**: Full Protocol Buffers syntax highlighting with TextMate grammar
-- **IntelliSense**: Completions, signature help, and hover for messages, services, RPCs, and keywords
-- **Annotation IntelliSense, derived from your schema**: Every custom option is discovered from its own `extend google.protobuf.*Options` block — its legal targets from the extendee, its body shape from the message it names, its documentation and usage example from its leading comment. Completion is target-aware, so a method option is never offered on a message, and accepting one inserts the missing `import`. Nothing is hardcoded, so options added to your own modules work without an extension update
-- **Enum value completion**: Assigning an enum-typed option or body field offers that enum's members in declaration order, with the proto3 `_UNSPECIFIED` value last. Types with open value sets offer nothing rather than a placeholder
-- **Semantic highlighting for annotations**: Option namespace, option name, body field and enum value each get their own colour, and a value the enum does not declare is marked as an error in the editor rather than at build time. On by default for proto files
-- **Import Path Completion**: After `import "`, suggests `.proto` paths from the workspace and configured proto paths
-- **Format Document**: Format `.proto` files with **buf format** (if `buf` is installed), **clang-format**, or a built-in **simple** indent; **`gapi.formatOnSave`** formats the **buffer** on save (see Troubleshooting if you also use Editor: Format On Save)
-- **Code Snippets**: Snippets for proto3, messages, services, RPCs, HTTP/resource options, and a full **resource + service** (`resourceservice`) that generates a `_service.proto` with a resource message and List/Get/Create/Update/Delete RPCs
-- **Document Links**: Clickable `import "path/to/file.proto"` links that open the imported file
-- **Go to Definition / Find References**: Navigate to message, enum, and service definitions and find all references
-- **Rename Symbol**: Rename messages, services, enums, and RPCs across the workspace, matched on the fully-qualified name — so renaming a type shared by several packages touches only the one you meant
-- **Code Actions (Quick Fixes)**: Add `(google.api.http)` for RPCs, `(google.api.resource)` for messages, and `_UNSPECIFIED = 0` for enums
-- **Outline & Folding**: Document symbols and folding ranges for messages, services, enums, and oneofs
+---
 
-### Scale
-- **Large workspaces**: Symbols come from an in-memory index rather than from opening every file — 9,257 protos index in 495 ms and occupy 25.5 MB. Linting batches one process per module, and the syntax check runs once per workspace rather than once per file
-- **Proto view groups by version**: Above a configurable file ceiling, symbol sections group by the `vN` segment of the package and then by package, so a workspace with several API versions stays navigable instead of rendering thousands of siblings
+## Start here
 
-### Workspace & setup
-- **Automatic Binary Management**: Downloads and updates api-linter binary automatically
-- **Automatic googleapis Integration**: Downloads googleapis protos on first use - no configuration needed
-- **Smart Proto Path Detection**: Uses `workspace.protobuf.yaml`, **buf.yaml** (modules + deps), and settings for proto paths
-- **buf.yaml support**: Every `buf.yaml` and `buf.work.yaml` in the workspace is read, and each file resolves to its own module by longest path prefix, so nested and multiple modules work. Dependencies are resolved by reading `buf.lock` and pointing at the buf module cache directly — no subprocess, and it still works when the module does not currently compile, which is when a linter is most wanted
-- **Protobuf folder as root**: If your protos live under a folder named `protobuf/`, that directory is used as the import root so `import "store/info/v1/category.proto"` resolves to `protobuf/store/info/v1/category.proto`; linting works from any subfolder
-- **.api-linter.yaml auto-discovery**: If you don’t set `gapi.configPath`, the extension finds `.api-linter.yaml` by walking up from the current file to the workspace root, so the config is used even when editing files in subfolders
-- **Workspace Linting**: Lint all proto files in your workspace with a single command
-- **Initialize Proto Workspace**: Create `workspace.protobuf.yaml` from the Proto view; in multi-root workspaces, init is available per folder
-- **Multi-Root Workspaces**: Proto view and init are scoped per workspace folder when multiple roots are open
-- **Update Notifications**: Prompts when new api-linter versions are available
-- **Configurable Rules**: Enable or disable specific linting rules via configuration
-- **Cross-Platform**: Works on Windows, macOS, and Linux
+Install the extension and open a folder with `.proto` files in it.
 
-## Troubleshooting
+On a machine that is missing something, a prompt offers to set it up:
+**api-linter**, the **googleapis** protos and the **protobuf well-known types**
+are downloaded into `~/.gapi`; anything a package manager owns (`buf`,
+`clang-format`) is offered as a command you run in a visible terminal, with
+Homebrew, apt, dnf, pacman, winget or Scoop chosen for your platform.
 
-- **Imports / go-to-definition until reload**: The extension resolves imports using the same roots as linting (`workspace.protobuf.yaml`, the buf module cache, `gapi.protoPath`, `~/.gapi`). After changing **buf.yaml** or **buf.lock**, paths refresh automatically; if something still looks stale, run **Developer: Reload Window**.
-- **Double format on save**: With **`gapi.formatOnSave`** enabled, the extension formats in **will save** from the **in-memory** buffer (so buf matches unsaved edits). If you also use **Editor: Format On Save**, VS Code may run a second format pass; disable one of them if that is unwanted.
-- **Buf / api-linter not found**: Set **`gapi.bufPath`** and **`gapi.binaryPath`** to absolute paths if they are not on `PATH`. The first run may download deps into `~/.gapi` (needs network).
-- **Rapid saves and lint**: If you save twice very quickly, the linter **re-runs** after the first pass finishes so the latest file state is still covered.
-- **Verbose linter logs**: Set **`gapi.debugLintLogging`** to `true` to print full applied settings on **every** lint; default logs settings only when they change.
+Nothing to try it on? **Protobuf AIP Linter: Create Starter Project** writes a
+working Todo API — a resource, the five standard methods, and buf configuration.
+It lints clean as written, so the first finding you see is one you caused.
 
-## Architecture
+---
 
-The extension operates through a multi-layered architecture that integrates the `api-linter` binary with VS Code's diagnostic system.
+## What it does
 
-```mermaid
-graph TB
-    A[VS Code Editor] -->|Document Events| B[Extension Activation]
-    B --> C[Linter Provider]
-    B --> D[Hover Provider]
-    B --> E[Command Registry]
-    
-    C -->|Executes| F[Binary Manager]
-    F -->|Spawns Process| G[api-linter Binary]
-    G -->|JSON Output| F
-    F -->|Parsed Results| C
-    
-    C -->|Creates| H[Diagnostic Collection]
-    H -->|Displays| A
-    
-    D -->|Reads| H
-    D -->|Shows Documentation| A
-    
-    E -->|Triggers| C
-   
-```
+### Fixes the findings it reports
 
-## How It Works
+`api-linter` states the fix in most of its messages. When it says
 
-### Workflow Overview
+> Proto files should set `option java_outer_classname = "LibraryProto"`
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant VSCode
-    participant Extension
-    participant BinaryManager
-    participant ApiLinter
-    
-    User->>VSCode: Opens/Edits .proto file
-    VSCode->>Extension: Document event triggered
-    Extension->>Extension: Check if linting enabled
-    Extension->>BinaryManager: Request lint execution
-    BinaryManager->>BinaryManager: Resolve binary path
-    BinaryManager->>BinaryManager: Build command arguments
-    BinaryManager->>ApiLinter: Execute with proto file
-    ApiLinter->>ApiLinter: Parse & validate proto
-    ApiLinter-->>BinaryManager: Return JSON diagnostics
-    BinaryManager->>Extension: Parse JSON output
-    Extension->>Extension: Convert to VS Code diagnostics
-    Extension->>VSCode: Update diagnostic collection
-    VSCode->>User: Display inline errors/warnings
-    
-    User->>VSCode: Hover over diagnostic
-    VSCode->>Extension: Request hover information
-    Extension->>Extension: Lookup rule documentation
-    Extension-->>VSCode: Return formatted hover content
-    VSCode->>User: Display rule details
-```
+the editor can write that, rather than leaving you to translate prose into a
+schema edit. Nineteen of the twenty-six rules a real service triggers are
+fixable this way. Press <kbd>⌘.</kbd> on a finding, or take
+**Fix All AIP Findings in This File** to apply every unambiguous one at once.
 
-### Component Breakdown
+Seven rules are deliberately left alone. `field-behavior-required` names four
+acceptable values and no way to choose between them; `request-name-reference`
+needs a resource type the message never states. A lightbulb that does not appear
+costs nothing; a fix that writes the wrong value into your schema costs a review
+cycle.
 
-#### 1. Extension Activation
-When a `.proto` file is opened or the extension starts:
-- Registers diagnostic collection for displaying linting results
-- Creates output channel for logging
-- Initializes linter and hover providers
-- Registers commands and document event listeners
+### Shows you why a symbol is failing
 
-#### 2. Binary Manager
-Manages the `api-linter` binary and googleapis:
-- Automatically downloads api-linter binary to `~/.gapi/` on first use
-- Automatically downloads googleapis from GitHub
-- Checks for updates every 10 days and prompts user
-- Constructs command-line arguments from configuration
-- Handles process spawning and output streaming
-- Parses JSON output into structured diagnostics
+Select a service or message and **Details** shows its fields with their
+`field_behavior`, its annotations, and the rules that fired on it — including
+option keys that are *absent*, since that is usually what the rule is
+complaining about. It opens in the sidebar, or as an editor tab beside your
+code.
 
-#### 3. Linter Provider
-Core linting logic:
-- Receives document change events
-- Invokes binary manager with current file
-- Transforms linter output to VS Code diagnostics
-- Updates diagnostic collection with results
+### Groups problems by rule, not by file
 
-#### 4. Hover Provider
-Provides contextual information:
-- Detects when user hovers over a diagnostic
-- Retrieves rule documentation from diagnostic metadata
-- Formats and displays rule details in hover tooltip
+The Problems view answers "which rule is firing thirty-four times, and should I
+be suppressing it" — a question no per-file list can. **Capture All Errors**
+turns the lot into a Markdown report with the offending lines quoted, for a bug
+report or a review.
 
-## Installation
+### Manages your dependencies
 
-### Prerequisites
+**Dependencies** reads `buf.yaml`, `buf.lock` and `buf.gen.yaml`: what you
+declare, how far behind the registry each module is, and every codegen plugin —
+each runnable on its own rather than regenerating everything.
 
-**None!** The extension automatically downloads and manages the `api-linter` binary and googleapis protos for you.
+**Proto Registry** is a searchable browser for Buf Schema Registry modules,
+opened as an editor tab. Self-hosted registries work through `gapi.registries`.
+Adding a dependency shows the exact `buf.yaml` edit before making it, because
+`buf dep` has no `add` subcommand and that file is one you commit.
 
-### Extension Installation
+### Documents the whole API
 
-1. **From VS Code Marketplace**
-   - Open VS Code
-   - Go to Extensions (Cmd+Shift+X / Ctrl+Shift+X)
-   - Search for "Protobuf AIP Linter"
-   - Click Install
+**Generate API Report** walks the workspace and writes Markdown: every service
+with its RPC table and a Mermaid diagram, the message types more than one
+service depends on, the package import graph, and findings by rule. It opens
+with the preview beside it, and it is a file — so it can go in a pull request,
+which is where API review actually happens.
 
-2. **From VSIX File**
-   ```bash
-   code --install-extension protobuf-aip-linter-1.0.0.vsix
-   ```
+---
 
-## Configuration
+## Editing
 
-Configure the extension through VS Code settings (File > Preferences > Settings or `Cmd+,`):
+- **Syntax highlighting** for Protocol Buffers, with semantic highlighting for
+  custom options: namespace, option name, body field and enum value each get
+  their own colour, and a value the enum does not declare is marked in the
+  editor rather than at build time.
+- **Annotation completion derived from your schema.** Every custom option is
+  discovered from its own `extend google.protobuf.*Options` block — legal
+  targets from the extendee, body shape from the message it names, documentation
+  from its leading comment. Completion is target-aware, so a method option is
+  never offered on a message, and accepting one inserts the missing `import`.
+  Nothing is hardcoded, so options in your own modules work without an extension
+  update.
+- **Go to Definition, Find References, Rename** across the workspace, backed by
+  an index that never opens a document to read one.
+- **Format** with `buf format`, `clang-format`, or a built-in indent.
+- **Import path completion**, **folding**, **signature help**, **hover
+  documentation** on rules and symbols.
 
-### Available Settings
+---
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `gapi.binaryPath` | string | `"api-linter"` | Path to the api-linter binary |
-| `gapi.formatOnSave` | boolean | `true` | Format proto files when you save |
-| `gapi.formatter` | string | `"buf"` | Formatter: `buf`, `clang-format`, or `simple` (built-in indent) |
-| `gapi.clangFormatPath` | string | `"clang-format"` | Path to clang-format when using `gapi.formatter: "clang-format"` |
-| `gapi.lintOnStartup` | boolean | `true` | Lint the whole workspace once when it opens, so problems are listed before you touch a file |
-| `gapi.enableOnSave` | boolean | `true` | Run linter when saving proto files |
-| `gapi.enableOnType` | boolean | `false` | Run linter while typing (may impact performance) |
-| `gapi.configPath` | string | `""` | Path to `.api-linter.yaml` configuration file |
-| `gapi.protoPath` | array | `[]` | Additional proto import paths |
-| `gapi.registries` | array | `[]` | Extra Buf Schema Registry hosts to browse, e.g. `["buf.example.com"]`. `buf.build` is always available |
-| `gapi.disableRules` | array | `[]` | Rules to disable (e.g., `["core::0192::has-comments"]`) |
-| `gapi.enableRules` | array | `[]` | Rules to explicitly enable |
-| `gapi.descriptorSetIn` | array | `[]` | FileDescriptorSet files for imports |
-| `gapi.ignoreCommentDisables` | boolean | `false` | Ignore disable comments in proto files |
-| `gapi.setExitStatus` | boolean | `false` | Return exit status 1 on lint errors |
-| `gapi.rulesDocumentationEndpoint` | string | `"https://linter.aip.dev"` | Base URL for rule documentation (use `http://localhost:8080` for local development) |
+## The sidebar
 
-### Example Configuration
+| View | Answers |
+| --- | --- |
+| **Structure** | What is in this API — services, RPCs, resources, messages, enums, each row carrying its own finding count |
+| **Problems** | Which rules are firing, and how often |
+| **Dependencies** | What this workspace declares, generates, and imports against |
+| **Registries** | Which schema registries you browse |
 
-```json
-{
-  "gapi.binaryPath": "/usr/local/bin/api-linter",
-  "gapi.enableOnSave": true,
-  "gapi.enableOnType": false,
-  "gapi.protoPath": [
-    "${workspaceFolder}/proto",
-    "${workspaceFolder}/third_party/googleapis"
-  ],
-  "gapi.disableRules": [
-    "core::0192::has-comments"
-  ],
-  "gapi.rulesDocumentationEndpoint": "https://linter.aip.dev"
-}
-```
+---
 
-### Local Development with Custom Documentation
+## Settings
 
-For local development or testing with a local documentation server:
+| Setting | Type | Default | |
+| --- | --- | --- | --- |
+| `gapi.lintOnStartup` | boolean | `true` | Lint the workspace when it opens |
+| `gapi.enableOnSave` | boolean | `true` | Lint on save |
+| `gapi.enableOnType` | boolean | `false` | Lint while typing |
+| `gapi.checkSetupOnStartup` | boolean | `true` | Offer to install missing tools |
+| `gapi.binaryPath` | string | `"api-linter"` | Path to the linter |
+| `gapi.configPath` | string | `""` | Path to `.api-linter.yaml` |
+| `gapi.protoPath` | array | `[]` | Extra import search directories |
+| `gapi.disableRules` | array | `[]` | Rules to disable, e.g. `["core::0192::has-comments"]` |
+| `gapi.enableRules` | array | `[]` | Rules to enable explicitly |
+| `gapi.ignoreCommentDisables` | boolean | `false` | Ignore in-proto disable comments |
+| `gapi.descriptorSetIn` | array | `[]` | FileDescriptorSet files for import resolution |
+| `gapi.setExitStatus` | boolean | `false` | Non-zero exit when findings exist |
+| `gapi.rulesDocumentationEndpoint` | string | `"https://linter.aip.dev"` | Base URL for rule docs |
+| `gapi.formatOnSave` | boolean | `true` | Format the buffer on save |
+| `gapi.formatter` | string | `"buf"` | `buf`, `clang-format`, or `simple` |
+| `gapi.bufPath` | string | `"buf"` | Path to `buf` |
+| `gapi.clangFormatPath` | string | `"clang-format"` | Path to `clang-format` |
+| `gapi.registries` | array | `[]` | Extra BSR hosts, e.g. `["buf.example.com"]` |
+| `gapi.index.enabled` | boolean | `true` | Build a workspace symbol index |
+| `gapi.index.maxMemoryMB` | number | `150` | Soft ceiling for the index |
+| `gapi.index.maxFiles` | number | `20000` | File ceiling for the index |
+| `gapi.protoView.maxFiles` | number | `5000` | File ceiling for the Structure view |
+| `gapi.debugLintLogging` | boolean | `false` | Log full linter settings on every run |
 
-```json
-{
-  "gapi.rulesDocumentationEndpoint": "http://localhost:8080"
-}
-```
+---
 
-This will redirect all rule documentation links to your local server instead of the official https://linter.aip.dev site.
+## Configuring the linter
 
-### Self-Hosting Documentation for Larger Teams
-
-> [!WARNING]
-> If you're using this extension with a larger team, it's **highly recommended** to host your own documentation server to avoid rate limits on the public https://linter.aip.dev site.
-
-The official api-linter documentation is available at:
-- **Documentation Source**: https://github.com/googleapis/api-linter/tree/main/docs
-- **Self-Hosting Guide**: https://github.com/googleapis/api-linter#documentation
-
-#### Why Self-Host?
-
-- **Rate Limits**: The public documentation site has rate limits that may be exceeded by teams
-- **Reliability**: Your own server ensures consistent availability
-- **Customization**: Add custom rules and documentation specific to your organization
-- **Performance**: Faster response times for your team
-
-#### Setup Example
-
-1. Clone and build the api-linter documentation
-2. Host it on your internal server (e.g., `https://docs.internal.company.com/api-linter`)
-3. Configure the extension:
-
-```json
-{
-  "gapi.rulesDocumentationEndpoint": "https://docs.internal.company.com/api-linter"
-}
-```
-
-### Workspace Configuration
-
-For project-specific settings, create `.vscode/settings.json`:
-
-```json
-{
-  "gapi.configPath": "${workspaceFolder}/.api-linter.yaml",
-  "gapi.protoPath": [
-    "${workspaceFolder}/protobuf",
-    "${workspaceFolder}/third_party"
-  ]
-}
-```
-
-You can omit `gapi.configPath` if `.api-linter.yaml` is at the workspace root; the extension will discover it automatically when linting from any folder.
-
-## Usage
-
-### Proto View (Activity Bar)
-
-Click the **Proto** icon in the Activity Bar to open the API Linter view (Run-and-Debug style layout):
-
-- **Top**: Action buttons—**Lint All Proto Files**, **Lint Current File**, **Create Config File**, **Initialize Proto Workspace**, **Restart**
-- **RPCs** (expandable): All RPC methods in services
-- **Resources** (expandable): Messages with `google.api.resource`
-- **Messages** (expandable): All proto messages
-- **MCP** (expandable): MCP options (service, tool, prompt, elicitation)
-- **Others** (expandable): Enums and other definitions (flat list)
-- **API Linter** status and workspace **proto files** with error/warning counts; expand a file to see each diagnostic
-
-**Hover** any RPC, resource, message, MCP item, or enum to see its documentation snippet (leading comment from the proto file). Click any item to jump to its definition.
-
-The extension activates when a `.proto` file is present or when `workspace.protobuf.yaml` exists in the workspace.
-
-### Commands
-
-Access commands via Command Palette (Cmd+Shift+P / Ctrl+Shift+P):
-
-- **Protobuf AIP Linter: Lint Current File** - Lint the currently open proto file
-- **Protobuf AIP Linter: Lint All Proto Files in Workspace** - Lint all `.proto` files in workspace
-- **Protobuf AIP Linter: Create Config File** - Generate a `.api-linter.yaml` template
-- **Protobuf AIP Linter: Initialize Proto Workspace** - Create `workspace.protobuf.yaml` in the workspace (or in the chosen folder for multi-root)
-- **Protobuf AIP Linter: Update googleapis Commit** - Download specific googleapis commit to workspace `.gapi/`
-- **Protobuf AIP Linter: Restart** - Restart the linter (useful after config changes)
-- **Protobuf AIP Linter: Refresh Proto View** - Refresh the Proto tree view
-
-**Formatting**: Proto files are formatted automatically when you save (if `gapi.formatOnSave` is true). Choose the formatter with `gapi.formatter`: **buf** ([Buf format](https://buf.build/docs/format/)), **clang-format** ([ClangFormat for Protobuf](https://clang.llvm.org/docs/ClangFormat.html)), or **simple** (built-in indent). You can also use **Format Document** (or your format shortcut) anytime.
-
-### Automatic Linting
-
-By default, the extension lints proto files:
-- When opening a proto file
-- When saving a proto file (if `gapi.enableOnSave` is true)
-- When typing (if `gapi.enableOnType` is true, with 1-second debounce and auto-save)
-
-### Viewing Diagnostics
-
-Linting results appear:
-- **Inline**: Squiggly underlines in the editor
-- **Problems Panel**: View > Problems (Cmd+Shift+M / Ctrl+Shift+M)
-- **Proto View**: Expand a file in the Proto panel to see each diagnostic; click to go to that line
-- **Status Bar**: "Proto" or "Proto: X error(s), Y warning(s)"—click to focus the Proto view
-- **Hover**: Hover over underlined code to see rule details
-
-## API Linter Configuration
-
-Create a `.api-linter.yaml` file in your project root to configure linting rules:
+Rules are configured by `.api-linter.yaml`, which is a list of blocks:
 
 ```yaml
-# Disable specific rules
-disabled_rules:
-  - core::0192::has-comments
-  - core::0203::optional
-
-# Enable specific rules
-enabled_rules:
-  - core::0140::prepositions
-
-# Additional proto import paths
-proto_paths:
-  - ./proto
-  - ./third_party
+---
+- included_paths:
+    - "**/*.proto"
+  disabled_rules:
+    - core::0192::has-comments
 ```
 
-The extension validates this file and `workspace.protobuf.yaml`: it reports **unknown keys** and **invalid paths** (e.g. non-existent `proto_paths` entries) as warnings in the editor.
+Or in a single file, for a single rule:
 
-Refer to the [api-linter documentation](https://linter.aip.dev/) for available rules and configuration options.
+```proto
+// (-- api-linter: core::0140::reserved-words=disabled --)
+string interface = 1;
+```
 
-### Proto workspace config (`workspace.protobuf.yaml`)
+`workspace.protobuf.yaml` marks a directory as a proto workspace and can list
+extra `proto_path` entries. Both files are validated as you edit them.
 
-Optional. Create this file (e.g. via **Initialize Proto Workspace** from the Proto view) to enable the extension and set proto paths for the workspace:
+---
+
+## Continuous integration
+
+**Set Up GitHub Actions CI** writes a workflow using
+[setup-google-api-linter](https://github.com/the-protobuf-project/setup-google-api-linter),
+which annotates each finding inline on the pull request diff:
 
 ```yaml
-# Optional: list of directories containing .proto files (default: this directory)
-proto_path: .
+- uses: the-protobuf-project/setup-google-api-linter@v1
+  with:
+    buf: true            # resolves google/api/* from buf.yaml
+    paths: "**/*.proto"
 ```
 
-In **multi-root workspaces**, each folder can have its own `workspace.protobuf.yaml`; the Proto view shows one section per folder and offers init per folder when the config is missing.
+`buf: true` is what makes the imports resolve — without it every annotated
+proto fails to compile rather than to lint.
 
-### buf.yaml (Buf build)
+---
 
-If your project uses [Buf](https://buf.build/) with a `buf.yaml` at the workspace root (or next to your protos), the extension will:
+## On large workspaces
 
-- Read **modules** (e.g. `path: protobuf`, `name: buf.build/the-protobuf-project/protoverse`) and **deps** (e.g. `buf.build/googleapis/googleapis`, `buf.build/the-protobuf-project/grpc-mcp-gateway`)
-- Read `buf.lock` and map each dependency to its directory in the buf module cache
-  (`~/.cache/buf/v3/modules/b5/<name>/<commit>/files`), so the api-linter can resolve every import
-- Use those cache directories and the local module paths as proto paths. No subprocess is
-  spawned and no temporary directory is written, and resolution keeps working when the module
-  does not currently compile — which is exactly when the linter is needed. Run
-  `buf dep update` yourself if a dependency is missing from the cache
+The index is built from `node` filesystem reads and never opens a
+`TextDocument`, because opening one per proto is what previously grew the
+extension host to tens of gigabytes on a 9,000-file repository. Above the
+configured ceilings it degrades deliberately rather than growing: doc comments
+and field-level symbols are dropped first, then workspace-wide features switch
+off and per-file ones keep working. It says which limit it hit and why.
 
-Ensure `buf` is on your PATH. If `buf` is not installed or export fails, the extension falls back to other proto paths (`workspace.protobuf.yaml`, `gapi.protoPath`, and the `protobuf` folder root).
+---
 
-### Proto layout with a `protobuf` folder
+## Requirements
 
-A common layout is to put all protos under a single root folder (e.g. `protobuf/`) so imports are consistent:
+| | |
+| --- | --- |
+| VS Code | 1.137.0 or later |
+| `api-linter` | Downloaded automatically |
+| googleapis, protobuf | Downloaded automatically into `~/.gapi` |
+| `buf` | Recommended — formatting, registry, codegen |
+| `clang-format` | Only if you select it as the formatter |
 
-```
-your-repo/
-├── .api-linter.yaml
-├── workspace.protobuf.yaml    # proto_path: protobuf
-├── buf.yaml                    # optional; deps + modules
-└── protobuf/
-    ├── store/
-    │   └── info/
-    │       └── v1/
-    │           └── category.proto
-    └── info/
-        └── v1/
-            └── ...
-```
+**Check Setup** reports the state of all five, with the install command for your
+platform, and the status bar shows which `api-linter` you are actually running.
 
-- In `workspace.protobuf.yaml` set `proto_path: protobuf` (or `proto_path: .` if the config file is inside `protobuf/`).
-- Then `import "store/info/v1/category.proto"` resolves to `protobuf/store/info/v1/category.proto`.
-- The extension automatically adds the `protobuf` directory as a proto path when the file you’re editing is under a folder named `protobuf`, so linting works from any subfolder and `.api-linter.yaml` at the repo root is still found.
-
-## Troubleshooting
-
-### Binary Not Found
-
-**Error**: `api-linter binary not found`
-
-**Solution**:
-The extension automatically downloads the binary on first use. If you see this error:
-1. Check your internet connection
-2. Ensure `~/.gapi/` directory is writable
-3. Alternatively, set `gapi.binaryPath` to a custom binary location
-
-### Import Errors
-
-**Error**: `Import "google/api/annotations.proto" was not found`
-
-**Solution**:
-The extension automatically downloads googleapis on first use. If imports still fail:
-1. Check that `~/.gapi/googleapis/` exists and contains proto files
-2. For workspace-specific googleapis version, run: **Protobuf AIP Linter: Update googleapis Commit**
-3. Manually add proto paths if needed:
-   ```json
-   {
-     "gapi.protoPath": ["${workspaceFolder}/.gapi/googleapis"]
-   }
-   ```
-
-### Performance Issues
-
-If linting is slow or causes lag:
-1. Disable `gapi.enableOnType` (keep `gapi.enableOnSave` enabled)
-2. The extension uses 1-second debouncing for on-type linting to minimize performance impact
-3. Use `.api-linter.yaml` to disable expensive rules
-4. Exclude large proto files or directories
+---
 
 ## Development
 
-### Building from Source
-
 ```bash
-# Clone repository
-git clone https://github.com/the-protobuf-project/protobuf-aip-linter-vscode.git
-cd protobuf-aip-linter-vscode
-
-# Install dependencies
 bun install
-
-# Compile TypeScript
-bun run compile
-
-# Package extension
-bun run package
-
-# Install locally
-code --install-extension protobuf-aip-linter-1.0.0.vsix
+bun run compile      # extension + webview bundles + Tailwind
+bun test             # unit tests
+bun run lint         # biome
+bun run package      # .vsix
 ```
 
-### Publishing to the Marketplace
-
-Push a tag to create a release and publish automatically:
-
-```bash
-git tag v1.2.0
-git push origin v1.2.0
-```
-
-The [Release workflow](.github/workflows/release.yaml) builds the extension, creates the GitHub release with commit-based release notes and the `.vsix` asset, and **publishes to the VS Code Marketplace** (if the `VSCE_PAT` secret is set). Add `VSCE_PAT` as described in [.github/SECRETS.md](.github/SECRETS.md).
-
-### Project Structure
-
-```
-vscode-googleapi-linter/
-├── src/
-│   ├── extension.ts           # Extension entry point
-│   ├── linterProvider.ts      # Core linting logic
-│   ├── binaryManager.ts       # Binary execution handler
-│   ├── hoverProvider.ts       # Hover documentation
-│   ├── commands.ts            # Command implementations
-│   ├── constants.ts           # Shared constants
-│   ├── types.ts               # TypeScript type definitions
-│   ├── protoView.ts           # Proto activity bar view (RPCs, resources, MCP, diagnostics)
-│   ├── statusBar.ts           # Status bar item
-│   ├── formatProvider.ts      # Format document (buf / simple formatter)
-│   ├── configValidator.ts     # Validation for .api-linter.yaml and workspace.protobuf.yaml
-│   ├── completionProvider.ts # IntelliSense and import path completion
-│   ├── signatureHelpProvider.ts
-│   ├── documentSymbolProvider.ts
-│   ├── workspaceSymbolProvider.ts
-│   ├── definitionProvider.ts
-│   ├── referenceProvider.ts
-│   ├── renameProvider.ts
-│   ├── codeActionProvider.ts
-│   ├── documentLinkProvider.ts
-│   ├── foldingProvider.ts
-│   ├── symbolHoverProvider.ts
-│   ├── protoScanner.ts        # Scan workspace for RPCs, resources, MCP
-│   └── utils/                 # fileUtils, configReader, bufConfigReader, protoParser, linterUtils, etc.
-├── snippets/
-│   └── proto3.json            # Proto3, MCP, and resource+service (CRUD) snippets
-├── package.json               # Extension manifest
-├── tsconfig.json              # TypeScript configuration
-└── .github/
-    └── workflows/
-        └── release.yaml       # CI/CD pipeline
-```
-
-## Contributing
-
-Contributions are welcome! Please follow these guidelines:
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/your-feature`
-3. Make your changes with clear commit messages
-4. Add tests if applicable
-5. Submit a pull request
+Contributions welcome — see the repository for issues and discussion.
 
 ## License
 
-This project is licensed under the Apache License 2.0. See [LICENSE.md](LICENSE.md) for details.
+Apache-2.0. See [LICENSE.md](LICENSE.md).
 
 ## Resources
 
-- [Protobuf AIP Linter](https://github.com/googleapis/api-linter)
-- [Google API Design Guide](https://cloud.google.com/apis/design)
-- [API Improvement Proposals (AIPs)](https://google.aip.dev/)
-- [Protocol Buffers](https://protobuf.dev/)
-
-## Support
-
-- **Issues**: [GitHub Issues](https://github.com/the-protobuf-project/protobuf-aip-linter-vscode/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/the-protobuf-project/protobuf-aip-linter-vscode/discussions)
+- [Google AIPs](https://google.aip.dev) — the design guidance this enforces
+- [api-linter rules](https://linter.aip.dev) — every rule, with examples
+- [buf](https://buf.build/docs) — module, registry and codegen documentation

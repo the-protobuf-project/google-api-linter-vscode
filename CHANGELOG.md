@@ -27,6 +27,14 @@ All notable changes to this extension are documented here. The format follows
 - **Capture All Errors** — findings as a shareable Markdown report with the
   offending source lines quoted.
 - **Symbol search** over the workspace index.
+- **Quick fixes from the linter's own messages.** `api-linter` states the fix in
+  most of what it reports, so the lightbulb can write it. Nineteen of the
+  twenty-six rules a real service triggers are fixable, and **Fix All AIP
+  Findings in This File** applies every unambiguous one at once — 76 findings to
+  30 in a single pass on a real file.
+- **Annotations in use**, under Dependencies. The old count was every annotation
+  the scanner had ever seen, including the nineteen googleapis declares; it now
+  counts what the workspace actually applies.
 - **Check Setup** — inspects the toolchain and reports what is installed, what
   is missing, and how to install it on *this* machine. Hints are
   platform-specific: Homebrew on macOS, apt/dnf/pacman on Linux, winget or
