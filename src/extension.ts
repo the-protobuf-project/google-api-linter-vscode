@@ -22,6 +22,7 @@ import {
 } from "./constants";
 import { ProtoDefinitionProvider } from "./definitionProvider";
 import { currentEnvironment, showSetup } from "./doctor/setupPanel";
+import { runSetup } from "./doctor/setupWizard";
 import { ProtoDocumentLinkProvider } from "./documentLinkProvider";
 import { ProtoDocumentSymbolProvider } from "./documentSymbolProvider";
 import { ProtoFoldingRangeProvider } from "./foldingProvider";
@@ -262,6 +263,20 @@ export async function activate(context: vscode.ExtensionContext) {
 					updateToolchainStatus(await showSetup());
 				},
 			),
+			vscode.commands.registerCommand(
+				"googleApiLinter.setupToolchain",
+				async () => {
+					updateToolchainStatus(await runSetup(binaryManager, outputChannel));
+				},
+			),
+			vscode.commands.registerCommand(
+				"googleApiLinter.setupToolchainForce",
+				async () => {
+					updateToolchainStatus(
+						await runSetup(binaryManager, outputChannel, { force: true }),
+					);
+				},
+			),
 		);
 
 		// Inspect the toolchain in the background and fill in the status bar.
@@ -283,10 +298,13 @@ export async function activate(context: vscode.ExtensionContext) {
 						`Proto tooling is incomplete: ${missing
 							.map((d) => d.label)
 							.join(", ")}.`,
-						"Check Setup",
+						"Install",
+						"Details",
 						"Not now",
 					);
-					if (choice === "Check Setup") {
+					if (choice === "Install") {
+						updateToolchainStatus(await runSetup(binaryManager, outputChannel));
+					} else if (choice === "Details") {
 						updateToolchainStatus(await showSetup());
 					}
 				}

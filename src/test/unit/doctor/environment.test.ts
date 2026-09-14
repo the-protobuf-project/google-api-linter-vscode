@@ -218,3 +218,52 @@ describe("statusSummary", () => {
 		expect(statusSummary(report)).toBe("Proto: setup needed");
 	});
 });
+
+describe("install commands are the ones that actually work", () => {
+	test("uses the homebrew-core name for buf, not the tap-qualified one", async () => {
+		// `brew install bufbuild/buf/buf` errors with "requires the tap
+		// bufbuild/buf" unless it has been tapped. buf is in homebrew-core, so
+		// the bare name is both correct and shorter — and a wrong install
+		// command is worse than none, since the reader runs it and then has to
+		// work out why it failed.
+		const report = await inspectEnvironment(
+			{ ...ABSENT, gapiRoot: emptyRoot() },
+			"darwin",
+		);
+		const brew = report.dependencies
+			.find((d) => d.id === "buf")
+			?.installHints.find((h) => h.via === "Homebrew");
+		expect(brew?.command).toBe("brew install buf");
+	});
+
+	test("every hint is a single command, not a shell script", async () => {
+		// These are offered in a modal and then run verbatim in a terminal, so
+		// anything with a pipe or a chained `&&` would be both unreadable in the
+		// prompt and unsafe to present as "this is what will run".
+		for (const platform of ["darwin", "linux", "win32"] as const) {
+			const report = await inspectEnvironment(
+				{ ...ABSENT, gapiRoot: emptyRoot() },
+				platform,
+			);
+			for (const dep of report.dependencies) {
+				for (const hint of dep.installHints) {
+					expect(hint.command).not.toContain("&&");
+					expect(hint.command).not.toContain("|");
+					expect(hint.command.split("\n")).toHaveLength(1);
+				}
+			}
+		}
+	});
+
+	test("never suggests sudo on macOS, where nothing needs it", async () => {
+		const report = await inspectEnvironment(
+			{ ...ABSENT, gapiRoot: emptyRoot() },
+			"darwin",
+		);
+		for (const dep of report.dependencies) {
+			for (const hint of dep.installHints) {
+				expect(hint.command).not.toContain("sudo");
+			}
+		}
+	});
+});

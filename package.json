@@ -418,6 +418,18 @@
 				"title": "Check Setup",
 				"category": "Protobuf AIP Linter",
 				"icon": "$(tools)"
+			},
+			{
+				"command": "googleApiLinter.setupToolchain",
+				"title": "Install Missing Tools",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(cloud-download)"
+			},
+			{
+				"command": "googleApiLinter.setupToolchainForce",
+				"title": "Reinstall All Tools (force)",
+				"category": "Protobuf AIP Linter",
+				"icon": "$(sync)"
 			}
 		],
 		"menus": {

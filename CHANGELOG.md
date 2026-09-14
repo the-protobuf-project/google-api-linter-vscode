@@ -33,6 +33,12 @@ All notable changes to this extension are documented here. The format follows
   Scoop on Windows, with Go as the cross-platform fallback. A manager that is
   not installed is shown and marked rather than hidden, because on a fresh
   machine the real answer is often "install that first".
+- **Install Missing Tools** — installs what is missing without touching what is
+  not. Downloads into `~/.gapi` happen directly; anything owned by a package
+  manager runs in a visible terminal, because several of those commands need
+  `sudo` and an extension that quietly asks for a password should not be
+  trusted. **Reinstall All Tools (force)** does the same but replaces what is
+  already there, for a download that arrived corrupt.
 - **A toolchain status-bar item**, the way a Go file reports its Go version.
   It shows the api-linter version, turns amber when something required is
   missing, and its tooltip lists every dependency with its version. Clicking it

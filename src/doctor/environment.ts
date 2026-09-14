@@ -202,7 +202,9 @@ function hintsFor(
 
 	if (id === "buf") {
 		if (platform === "darwin" || platform === "linux") {
-			add("Homebrew", "brew install bufbuild/buf/buf", managers.brew);
+			// `buf`, not `bufbuild/buf/buf`: it is in homebrew-core, and the
+			// tap-qualified name errors out unless the tap is added first.
+			add("Homebrew", "brew install buf", managers.brew);
 		}
 		if (platform === "win32") {
 			add("winget", "winget install Buf.Buf", managers.winget);
