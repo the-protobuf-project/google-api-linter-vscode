@@ -1,9 +1,16 @@
 import * as vscode from "vscode";
 
-/** Where issues go when `package.json` names no usable repository. */
+/**
+ * Where issues go when `package.json` names no usable repository.
+ *
+ * The same repository the manifest names. It disagreed — pointing at
+ * `protobuf-aip-linter-vscode` — which only mattered if the manifest ever lost
+ * its `repository.url`, and would then have sent every report to a repository
+ * nobody reads.
+ */
 const FALLBACK_REPO: GithubRepo = {
 	owner: "the-protobuf-project",
-	repo: "protobuf-aip-linter-vscode",
+	repo: "google-api-linter-vscode",
 };
 
 /** Owner and repository parsed out of a GitHub remote URL. */

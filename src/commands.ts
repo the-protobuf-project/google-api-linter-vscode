@@ -426,7 +426,7 @@ export const createConfigCommand = () => {
 
 /** Minimal content for workspace.protobuf.yaml (enables extension and proto paths). */
 const WORKSPACE_PROTOBUF_YAML_TEMPLATE = `# Proto workspace config (Protobuf AIP Linter)
-# See: https://github.com/the-protobuf-project/protobuf-aip-linter-vscode
+# See: https://github.com/the-protobuf-project/google-api-linter-vscode
 
 # Optional: list of directories containing .proto files (default: this directory)
 # proto_path: .
