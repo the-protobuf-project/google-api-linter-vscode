@@ -710,6 +710,35 @@ describe("getProtoExclusion", () => {
 		).toBe(false);
 	});
 
+	test("excludes a proto behind an excluded symlink by its real path too", async () => {
+		// Bazel's `bazel-bin` is a link into its cache, and `buf` reports what is
+		// under it by the real path, which no longer says `bazel-bin`.
+		const cache = makeTree({ "bin/protobuf/a.proto": "x" });
+		const root = makeTree({
+			"workspace.protobuf.yaml": "exclude:\n  - bazel-*\n",
+		});
+		fs.symlinkSync(cache, path.join(root, "bazel-bin"), "dir");
+		useWorkspace(root);
+		const exclusion = await getProtoExclusion();
+		const real = fs.realpathSync(path.join(cache, "bin/protobuf/a.proto"));
+		expect(exclusion.isExcluded(real)).toBe(true);
+		expect(
+			exclusion.isExcluded(path.join(root, "bazel-bin/bin/protobuf/a.proto")),
+		).toBe(true);
+	});
+
+	test("leaves the target of a symlink it does not exclude alone", async () => {
+		const shared = makeTree({ "api/a.proto": "x" });
+		const root = makeTree({
+			"workspace.protobuf.yaml": "exclude:\n  - bazel-*\n",
+		});
+		fs.symlinkSync(shared, path.join(root, "shared"), "dir");
+		useWorkspace(root);
+		const exclusion = await getProtoExclusion();
+		const real = fs.realpathSync(path.join(shared, "api/a.proto"));
+		expect(exclusion.isExcluded(real)).toBe(false);
+	});
+
 	test("excludes nothing when no config is open", async () => {
 		useWorkspace(makeTree({ "keep.txt": "x" }));
 		const exclusion = await getProtoExclusion();

@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { parse as parseYaml } from "yaml";
@@ -226,17 +227,79 @@ export async function getProtoExclusion(): Promise<ProtoExclusion> {
 
 	const root = path.dirname(configUri.fsPath);
 	const matcher = createGlobMatcher(config.exclude);
+	const linked = excludedLinkTargets(root, matcher);
 	return {
 		root,
 		patterns: config.exclude,
 		isExcluded: (absolutePath: string) => {
 			const relative = path.relative(root, path.resolve(absolutePath));
 			// A file outside the config's own tree is not something these
-			// workspace-relative patterns have any claim over.
+			// workspace-relative patterns have any claim over -- unless it is
+			// the far end of an excluded symlink.
 			if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
-				return false;
+				return linked.length > 0 && isUnder(realPath(absolutePath), linked);
 			}
 			return matcher(relative);
 		},
 	};
+}
+
+/**
+ * The real directories behind the excluded symlinks at the top of `root`.
+ *
+ * Bazel leaves `bazel-bin`, `bazel-out` and friends there, each a symlink into
+ * its cache, and tools that resolve links -- `buf` among them -- report a proto
+ * under them by its real path. That path no longer contains `bazel-bin`, so no
+ * pattern can match it; what can is knowing that the link was excluded and
+ * where it leads. Only the top level is read: that is where build tools put
+ * their links, and walking a tree for links would cost every lint pass.
+ *
+ * @param root - The config's directory
+ * @param matcher - The compiled `exclude` patterns
+ * @returns Real paths of the directories excluded symlinks point at
+ */
+function excludedLinkTargets(
+	root: string,
+	matcher: (relativePath: string) => boolean,
+): string[] {
+	let entries: fs.Dirent[];
+	try {
+		entries = fs.readdirSync(root, { withFileTypes: true });
+	} catch {
+		return [];
+	}
+	const targets: string[] = [];
+	for (const entry of entries) {
+		// A probe beneath the link stands for "anything under it", since a
+		// pattern like `bazel-*/**` matches the contents, not the link itself.
+		if (!entry.isSymbolicLink() || !matcher(`${entry.name}/x.proto`)) {
+			continue;
+		}
+		const target = realPath(path.join(root, entry.name));
+		try {
+			if (fs.statSync(target).isDirectory()) {
+				targets.push(target);
+			}
+		} catch {
+			// A dangling link leads nowhere a proto could be reported from.
+		}
+	}
+	return targets;
+}
+
+/** `file` with every symlink resolved, or as given when it cannot be. */
+function realPath(file: string): string {
+	try {
+		return fs.realpathSync(file);
+	} catch {
+		return path.resolve(file);
+	}
+}
+
+/** True when `file` is one of `dirs` or lies beneath one. */
+function isUnder(file: string, dirs: readonly string[]): boolean {
+	return dirs.some((dir) => {
+		const relative = path.relative(dir, file);
+		return !relative.startsWith("..") && !path.isAbsolute(relative);
+	});
 }

@@ -78,14 +78,17 @@ export const matchesGlob = (relativePath: string, pattern: string): boolean =>
 export const toPosix = (filePath: string): string =>
 	filePath.replace(/\\/g, "/").replace(/^\.\//, "");
 
-/** True when the pattern has no wildcard, and so names a literal path. */
-const isLiteral = (pattern: string): boolean => !/[*?]/.test(pattern);
-
 /**
  * Expands the shorthand people actually write. `vendor` and `vendor/` are meant
  * as "that directory", so they also cover everything beneath it -- otherwise a
  * bare directory name would silently match nothing and the exclusion would look
  * broken rather than wrong.
+ *
+ * A wildcard pattern is read the same way: `bazel-*` names the directories
+ * `bazel-bin` and `bazel-out`, so it covers what is under them too. Matched
+ * only as written, it would match the directory and never a proto inside it --
+ * exactly the silent nothing the shorthand exists to prevent. A pattern that
+ * already ends in a doubled star covers its remainder and is left alone.
  *
  * @param pattern - Raw pattern as written in the config file
  * @returns Every glob the pattern should be tested against
@@ -95,10 +98,10 @@ export const expandPattern = (pattern: string): string[] => {
 	if (!cleaned) {
 		return [];
 	}
-	if (isLiteral(cleaned)) {
-		return [cleaned, `${cleaned}/**`];
+	if (cleaned === "**" || cleaned.endsWith("/**")) {
+		return [cleaned];
 	}
-	return [cleaned];
+	return [cleaned, `${cleaned}/**`];
 };
 
 /**

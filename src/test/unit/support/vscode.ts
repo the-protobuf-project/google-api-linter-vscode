@@ -457,6 +457,8 @@ export const workspace = {
 		get: <T>(_key: string, fallback?: T): T | undefined => fallback,
 	}),
 	workspaceFolders: undefined as unknown,
+	/** No editor is open in a test; one that needs buffers assigns its own. */
+	textDocuments: [] as unknown[],
 	onDidChangeConfiguration: () => ({ dispose() {} }),
 	/**
 	 * Finds nothing by default. Globbing is the extension host's job, so a test
