@@ -21,7 +21,9 @@
  */
 
 import * as vscode from "vscode";
+import { WORKSPACE_PROTOBUF_YAML } from "../constants";
 import type { AnnotationDescriptor } from "../index/types";
+import { getProtoExclusion, type ProtoExclusion } from "../utils/configReader";
 import type { ProtoDocumentModel } from "./document";
 import { targetLabel } from "./markdown";
 import type { AnnotationRegistryImpl } from "./registry";
@@ -69,11 +71,44 @@ export class AnnotationDiagnostics implements vscode.Disposable {
 	private readonly collection: vscode.DiagnosticCollection;
 	private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
 	private readonly listeners: vscode.Disposable[] = [];
+	/**
+	 * The `exclude` of `workspace.protobuf.yaml`, as last read. Held rather than
+	 * read per call because `validate` runs on every keystroke and is
+	 * synchronous; it excludes nothing until the first read completes.
+	 */
+	private exclusion: Pick<ProtoExclusion, "isExcluded"> = {
+		isExcluded: () => false,
+	};
 
-	constructor(private readonly source: AnnotationSource) {
+	/**
+	 * @param source - The annotation index
+	 * @param loadExclusion - Reads the workspace's `exclude`; a test supplies
+	 *   its own
+	 */
+	constructor(
+		private readonly source: AnnotationSource,
+		private readonly loadExclusion: () => Promise<
+			Pick<ProtoExclusion, "isExcluded">
+		> = getProtoExclusion,
+	) {
 		this.collection = vscode.languages.createDiagnosticCollection(
 			ANNOTATION_DIAGNOSTIC_SOURCE,
 		);
+	}
+
+	/**
+	 * Re-reads `exclude` and re-validates every open buffer, so a folder
+	 * excluded after its diagnostics were published loses them -- the same
+	 * promise the linter's own diagnostics keep.
+	 */
+	async refreshExclusion(): Promise<void> {
+		try {
+			this.exclusion = await this.loadExclusion();
+		} catch {
+			// An unreadable config excludes nothing, as no config does.
+			this.exclusion = { isExcluded: () => false };
+		}
+		this.refreshAll();
 	}
 
 	/**
@@ -104,7 +139,18 @@ export class AnnotationDiagnostics implements vscode.Disposable {
 			// change without the buffer itself being touched.
 			this.source.onDidChange(() => this.refreshAll()),
 		);
+		const config = vscode.workspace.createFileSystemWatcher(
+			`**/${WORKSPACE_PROTOBUF_YAML}`,
+		);
+		const reread = () => void this.refreshExclusion();
+		this.listeners.push(
+			config,
+			config.onDidCreate(reread),
+			config.onDidChange(reread),
+			config.onDidDelete(reread),
+		);
 		this.refreshAll();
+		void this.refreshExclusion();
 	}
 
 	/** Re-validates every open proto buffer. */
@@ -142,6 +188,12 @@ export class AnnotationDiagnostics implements vscode.Disposable {
 	 */
 	validate(document: vscode.TextDocument): void {
 		if (!isProtoDocument(document)) {
+			return;
+		}
+		// Excluded trees are generated or vendored: not the user's to fix, and
+		// asked by name not to be reported.
+		if (this.exclusion.isExcluded(document.uri.fsPath)) {
+			this.collection.delete(document.uri);
 			return;
 		}
 		const registry = this.source.registry();

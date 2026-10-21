@@ -1138,3 +1138,68 @@ message M {
 		},
 	);
 });
+
+describe("an excluded folder", () => {
+	/** A misspelt option: the one diagnostic these tests watch come and go. */
+	const MISSPELT = `${DEMO_HEADER}message M {
+  option (demo.v1.demo_not) = "x";
+}
+`;
+
+	/**
+	 * A validator whose `exclude` covers everything under `/repo/target/`.
+	 * @param load - Overrides the loader, to make it fail
+	 */
+	function excluding(
+		load: () => Promise<{ isExcluded(path: string): boolean }> = async () => ({
+			isExcluded: (file: string) => file.startsWith("/repo/target/"),
+		}),
+	): { validator: AnnotationDiagnostics; collection: DiagnosticCollection } {
+		const original = languages.createDiagnosticCollection;
+		let captured: DiagnosticCollection | undefined;
+		languages.createDiagnosticCollection = (name?: string) => {
+			captured = new DiagnosticCollection(name);
+			return captured;
+		};
+		try {
+			const validator = new AnnotationDiagnostics(
+				new AnnotationSource(undefined, DEMO_REGISTRY),
+				load,
+			);
+			return { validator, collection: captured as DiagnosticCollection };
+		} finally {
+			languages.createDiagnosticCollection = original;
+		}
+	}
+
+	test("gets no diagnostics, and loses those it had before the exclusion", async () => {
+		const { validator, collection } = excluding();
+		const document = makeDocument(MISSPELT, "/repo/target/gen/a.proto");
+		validator.validate(document);
+		// Before `exclude` is read, the buffer is checked as any other.
+		expect(collection.get(document.uri as never)?.length).toBe(1);
+		await validator.refreshExclusion();
+		validator.validate(document);
+		expect(collection.get(document.uri as never) ?? []).toEqual([]);
+	});
+
+	test("leaves a buffer outside the excluded folders checked", async () => {
+		const { validator, collection } = excluding();
+		await validator.refreshExclusion();
+		const document = makeDocument(MISSPELT, "/repo/protobuf/a.proto");
+		validator.validate(document);
+		expect(codes(collection.get(document.uri as never) ?? [])).toEqual([
+			ANNOTATION_DIAGNOSTIC_CODES.unknown,
+		]);
+	});
+
+	test("excludes nothing when the config cannot be read", async () => {
+		const { validator, collection } = excluding(async () => {
+			throw new Error("unreadable");
+		});
+		await validator.refreshExclusion();
+		const document = makeDocument(MISSPELT, "/repo/target/gen/a.proto");
+		validator.validate(document);
+		expect(collection.get(document.uri as never)?.length).toBe(1);
+	});
+});

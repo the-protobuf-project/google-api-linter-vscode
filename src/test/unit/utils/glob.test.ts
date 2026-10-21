@@ -80,9 +80,17 @@ describe("expandPattern", () => {
 		expect(expandPattern("vendor/")).toEqual(["vendor", "vendor/**"]);
 	});
 
-	test("a pattern that already has a wildcard is left alone", () => {
+	test("a pattern ending in a doubled star is left alone", () => {
 		expect(expandPattern("vendor/**")).toEqual(["vendor/**"]);
-		expect(expandPattern("**/*.pb.proto")).toEqual(["**/*.pb.proto"]);
+		expect(expandPattern("**")).toEqual(["**"]);
+	});
+
+	test("a wildcard directory name also covers everything beneath it", () => {
+		expect(expandPattern("bazel-*")).toEqual(["bazel-*", "bazel-*/**"]);
+		expect(expandPattern("**/*.pb.proto")).toEqual([
+			"**/*.pb.proto",
+			"**/*.pb.proto/**",
+		]);
 	});
 
 	test("drops an empty or whitespace-only entry", () => {
@@ -98,6 +106,14 @@ describe("createGlobMatcher", () => {
 		expect(matches("vendor/deep/nested/book.proto")).toBe(true);
 		expect(matches("third_party/a.proto")).toBe(true);
 		expect(matches("src/book.proto")).toBe(false);
+	});
+
+	test("a wildcard directory name excludes the trees under every match", () => {
+		const matches = createGlobMatcher(["bazel-*"]);
+		expect(matches("bazel-bin/protobuf/a/v1/a.proto")).toBe(true);
+		expect(matches("bazel-out/darwin/bin/a.proto")).toBe(true);
+		expect(matches("bazel/rules.proto")).toBe(false);
+		expect(matches("src/bazel-bin.proto")).toBe(false);
 	});
 
 	test("an empty pattern list matches nothing", () => {

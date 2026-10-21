@@ -6,8 +6,25 @@ All notable changes to this extension are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.0.1]
+
 ### Fixed
 
+- **`exclude` honours a wildcard directory name.** A bare name like `target`
+  was widened to cover the tree beneath it, but `bazel-*` was matched only as
+  written: it named `bazel-bin` and never a proto inside it, so Bazel's output
+  went on being linted. A wildcard pattern now covers what is under each
+  match too; one ending in `**` is left alone.
+- **`exclude` silences annotation diagnostics.** `proto-annotations` (unknown
+  option, missing import and the rest) validated every open buffer without
+  asking, so an excluded file kept its errors whatever the config said. It now
+  reads `exclude` at start and again whenever `workspace.protobuf.yaml`
+  changes, and clears an excluded buffer's diagnostics.
+- **`exclude` follows an excluded symlink to its target.** `buf` reports a
+  proto under `bazel-bin` by its real path in Bazel's cache, which no longer
+  says `bazel-bin`, so no pattern could match it. A symlink at the top of the
+  config's directory that `exclude` covers now excludes the directory it
+  points at.
 - **Enum values inside an option body are highlighted.** The `kv` rule's end
   pattern is a lookahead on the first letter of the *value*, so it closed the
   rule before `#constants` could ever match and every identifier written after
