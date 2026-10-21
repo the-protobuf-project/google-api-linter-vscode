@@ -6,6 +6,8 @@ All notable changes to this extension are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.0.1]
+
 ### Fixed
 
 - **`exclude` honours a wildcard directory name.** A bare name like `target`
