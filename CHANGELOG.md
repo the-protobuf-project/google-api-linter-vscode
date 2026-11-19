@@ -6,6 +6,12 @@ All notable changes to this extension are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **README.** Marketplace badges (version, installs, rating) and an install
+  line under the title; the `---` rules between sections are gone, since every
+  heading already draws its own.
+
 ## [2.0.5]
 
 ### Changed
