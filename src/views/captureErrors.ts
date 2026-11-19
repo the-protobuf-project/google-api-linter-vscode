@@ -190,7 +190,7 @@ export async function buildCapture(
 	out.push(`- Platform \`${process.platform}-${process.arch}\``);
 	out.push(`- api-linter \`${await linterVersion()}\``);
 	const extension = vscode.extensions.getExtension(
-		"the-protobuf-project.aip-linter",
+		"the-protobuf-project.tpp-aip-linter",
 	);
 	if (extension) {
 		out.push(`- Extension \`${extension.packageJSON.version}\``);
