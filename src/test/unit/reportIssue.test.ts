@@ -23,7 +23,7 @@ import {
 } from "../../reportIssue";
 
 const CTX: IssueContext = {
-	extensionId: "the-protobuf-project.aip-linter",
+	extensionId: "the-protobuf-project.tpp-aip-linter",
 	version: "2.1.0",
 	vscodeVersion: "1.137.0",
 	platform: "darwin",

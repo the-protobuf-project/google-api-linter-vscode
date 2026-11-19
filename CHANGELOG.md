@@ -6,6 +6,16 @@ All notable changes to this extension are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.0.4]
+
+### Changed
+
+- **First Marketplace release, as `the-protobuf-project.tpp-aip-linter`.**
+  Marketplace extension names are unique across every publisher: `aip-linter`
+  belongs to another publisher and `protobuf-aip-linter` is held by an unlisted
+  extension, which is why 2.0.1–2.0.3 were refused. The display name is back to
+  "Protobuf AIP Linter".
+
 ## [2.0.3]
 
 ### Changed
