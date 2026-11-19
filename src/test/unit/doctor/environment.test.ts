@@ -63,9 +63,23 @@ const NO_MANAGERS: Managers = {
 	go: false,
 };
 
+/**
+ * inspectEnvironment with no real package-manager detection unless a test
+ * asks for it. Detection shells out to `which` once per manager, and on a slow
+ * CI runner eight of those took this suite past its 5s test timeout — while
+ * telling the tests about the runner, not about the code under test.
+ */
+function inspect(
+	config: ProbeConfig,
+	platform: NodeJS.Platform = process.platform,
+	managers: Managers = NO_MANAGERS,
+) {
+	return inspectEnvironment(config, platform, managers);
+}
+
 describe("requirement levels", () => {
 	test("separates what is required from what is merely nice", async () => {
-		const report = await inspectEnvironment({
+		const report = await inspect({
 			...ABSENT,
 			gapiRoot: emptyRoot(),
 		});
@@ -82,7 +96,7 @@ describe("requirement levels", () => {
 	});
 
 	test("is not ready when something required is absent", async () => {
-		const report = await inspectEnvironment({
+		const report = await inspect({
 			...ABSENT,
 			gapiRoot: emptyRoot(),
 		});
@@ -91,7 +105,7 @@ describe("requirement levels", () => {
 
 	test("a missing optional tool alone does not block readiness", async () => {
 		// Everything required present, clang-format absent: still ready.
-		const report = await inspectEnvironment({
+		const report = await inspect({
 			apiLinterPath: process.execPath,
 			bufPath: process.execPath,
 			clangFormatPath: "clang-format-does-not-exist-xyz",
@@ -106,7 +120,7 @@ describe("requirement levels", () => {
 describe("the download directory", () => {
 	test("reports it missing when nothing has been downloaded", async () => {
 		const root = emptyRoot();
-		const report = await inspectEnvironment({ ...ABSENT, gapiRoot: root });
+		const report = await inspect({ ...ABSENT, gapiRoot: root });
 		expect(report.gapiRoot).toBe(root);
 		expect(report.gapiRootExists).toBe(false);
 		for (const id of ["googleapis", "protobuf"]) {
@@ -117,7 +131,7 @@ describe("the download directory", () => {
 	});
 
 	test("finds googleapis and protobuf once they are there", async () => {
-		const report = await inspectEnvironment({
+		const report = await inspect({
 			...ABSENT,
 			gapiRoot: populatedRoot(),
 		});
@@ -132,7 +146,7 @@ describe("the download directory", () => {
 		// panel tells someone they are ready when no proto will resolve.
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "gapi-bare-"));
 		fs.mkdirSync(path.join(root, "googleapis"), { recursive: true });
-		const report = await inspectEnvironment({ ...ABSENT, gapiRoot: root });
+		const report = await inspect({ ...ABSENT, gapiRoot: root });
 		expect(report.dependencies.find((d) => d.id === "googleapis")?.state).toBe(
 			"missing",
 		);
@@ -141,7 +155,7 @@ describe("the download directory", () => {
 
 describe("install hints", () => {
 	test("offers Homebrew on macOS", async () => {
-		const report = await inspectEnvironment(
+		const report = await inspect(
 			{ ...ABSENT, gapiRoot: emptyRoot() },
 			"darwin",
 		);
@@ -153,10 +167,7 @@ describe("install hints", () => {
 	});
 
 	test("offers the platform's own managers on Linux", async () => {
-		const report = await inspectEnvironment(
-			{ ...ABSENT, gapiRoot: emptyRoot() },
-			"linux",
-		);
+		const report = await inspect({ ...ABSENT, gapiRoot: emptyRoot() }, "linux");
 		const clang = report.dependencies.find((d) => d.id === "clang-format");
 		const vias = clang?.installHints.map((h) => h.via) ?? [];
 		expect(vias).toContain("apt");
@@ -164,10 +175,7 @@ describe("install hints", () => {
 	});
 
 	test("offers winget on Windows and never brew", async () => {
-		const report = await inspectEnvironment(
-			{ ...ABSENT, gapiRoot: emptyRoot() },
-			"win32",
-		);
+		const report = await inspect({ ...ABSENT, gapiRoot: emptyRoot() }, "win32");
 		const buf = report.dependencies.find((d) => d.id === "buf");
 		const vias = buf?.installHints.map((h) => h.via) ?? [];
 		expect(vias).toContain("winget");
@@ -184,7 +192,7 @@ describe("install hints", () => {
 		// winget resolves makes the assertion a fact about the runner: this read
 		// as passing everywhere except Windows, the one platform where the hints
 		// are real, because GitHub's Windows image ships winget.
-		const report = await inspectEnvironment(
+		const report = await inspect(
 			{ ...ABSENT, gapiRoot: emptyRoot() },
 			"win32",
 			NO_MANAGERS,
@@ -202,7 +210,7 @@ describe("install hints", () => {
 		// The other half of the contract: `unavailable` distinguishes the two,
 		// so a test that only ever sees absent managers cannot tell whether the
 		// flag means anything.
-		const report = await inspectEnvironment(
+		const report = await inspect(
 			{ ...ABSENT, gapiRoot: emptyRoot() },
 			"win32",
 			{ ...NO_MANAGERS, winget: true },
@@ -213,7 +221,7 @@ describe("install hints", () => {
 	});
 
 	test("says the extension installs what it can install itself", async () => {
-		const report = await inspectEnvironment({
+		const report = await inspect({
 			...ABSENT,
 			gapiRoot: emptyRoot(),
 		});
@@ -227,7 +235,7 @@ describe("install hints", () => {
 
 describe("statusSummary", () => {
 	test("names the version when the linter is present", async () => {
-		const report = await inspectEnvironment({
+		const report = await inspect({
 			apiLinterPath: process.execPath,
 			bufPath: process.execPath,
 			clangFormatPath: process.execPath,
@@ -240,7 +248,7 @@ describe("statusSummary", () => {
 	});
 
 	test("asks for setup when the linter is missing", async () => {
-		const report = await inspectEnvironment({
+		const report = await inspect({
 			...ABSENT,
 			gapiRoot: emptyRoot(),
 		});
@@ -255,7 +263,7 @@ describe("install commands are the ones that actually work", () => {
 		// the bare name is both correct and shorter — and a wrong install
 		// command is worse than none, since the reader runs it and then has to
 		// work out why it failed.
-		const report = await inspectEnvironment(
+		const report = await inspect(
 			{ ...ABSENT, gapiRoot: emptyRoot() },
 			"darwin",
 		);
@@ -270,7 +278,7 @@ describe("install commands are the ones that actually work", () => {
 		// anything with a pipe or a chained `&&` would be both unreadable in the
 		// prompt and unsafe to present as "this is what will run".
 		for (const platform of ["darwin", "linux", "win32"] as const) {
-			const report = await inspectEnvironment(
+			const report = await inspect(
 				{ ...ABSENT, gapiRoot: emptyRoot() },
 				platform,
 			);
@@ -285,7 +293,7 @@ describe("install commands are the ones that actually work", () => {
 	});
 
 	test("never suggests sudo on macOS, where nothing needs it", async () => {
-		const report = await inspectEnvironment(
+		const report = await inspect(
 			{ ...ABSENT, gapiRoot: emptyRoot() },
 			"darwin",
 		);
