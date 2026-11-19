@@ -92,7 +92,7 @@ jobs:
             echo ""
             echo "**From VS Code Marketplace** (recommended)"
             echo ""
-            echo "Install from the [Visual Studio Code Marketplace](https://marketplace.visualstudio.com/items?itemName=the-protobuf-project.tpp-aip-linter): open VS Code → Extensions (Ctrl+Shift+X / Cmd+Shift+X) → search **Protobuf AIP Linter** → Install."
+            echo "Install from the [Visual Studio Code Marketplace](https://marketplace.visualstudio.com/items?itemName=the-protobuf-project.tpp-aip-linter): open VS Code → Extensions (Ctrl+Shift+X / Cmd+Shift+X) → search **Protobuf AIP Linter for VS Code** → Install."
             echo ""
             echo "You can also [download the extension](https://marketplace.visualstudio.com/items?itemName=the-protobuf-project.tpp-aip-linter) from the Marketplace page."
             echo ""
