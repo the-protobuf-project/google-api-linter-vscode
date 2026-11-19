@@ -6,6 +6,8 @@ All notable changes to this extension are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.0.6]
+
 ### Changed
 
 - **README.** Marketplace badges (version, installs, rating) and an install
