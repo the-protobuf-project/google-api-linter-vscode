@@ -6,6 +6,14 @@ All notable changes to this extension are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.0.5]
+
+### Changed
+
+- **Display name "Protobuf AIP Linter for VS Code".** Display names are unique
+  across the Marketplace too, and "Protobuf AIP Linter" is held by an unlisted
+  extension, which refused 2.0.4.
+
 ## [2.0.4]
 
 ### Changed
