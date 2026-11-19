@@ -2,7 +2,7 @@
 	"name": "tpp-aip-linter",
 	"displayName": "Protobuf AIP Linter for VS Code",
 	"description": "Design Protocol Buffer APIs that follow the Google AIPs — lint, fix findings the linter states, browse the Buf Schema Registry, and document the whole API without leaving the editor.",
-	"version": "2.0.5",
+	"version": "2.0.6",
 	"publisher": "the-protobuf-project",
 	"license": "Apache-2.0",
 	"icon": "picon.png",
