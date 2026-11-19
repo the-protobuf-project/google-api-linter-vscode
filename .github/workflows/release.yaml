@@ -18,6 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write  # Required to upload release assets
+      # Trusted publishing: GitHub's OIDC token is what the Marketplace trusts,
+      # so no Marketplace credential is stored anywhere. The publisher's
+      # trusted-publishing page names this repo and this workflow file.
+      id-token: write
 
     steps:
       - name: Checkout code
@@ -88,15 +92,15 @@ jobs:
             echo ""
             echo "**From VS Code Marketplace** (recommended)"
             echo ""
-            echo "Install from the [Visual Studio Code Marketplace](https://marketplace.visualstudio.com/items?itemName=the-protobuf-project.protobuf-aip-linter): open VS Code → Extensions (Ctrl+Shift+X / Cmd+Shift+X) → search **Protobuf AIP Linter** → Install."
+            echo "Install from the [Visual Studio Code Marketplace](https://marketplace.visualstudio.com/items?itemName=the-protobuf-project.aip-linter): open VS Code → Extensions (Ctrl+Shift+X / Cmd+Shift+X) → search **Protobuf AIP Linter** → Install."
             echo ""
-            echo "You can also [download the extension](https://marketplace.visualstudio.com/items?itemName=the-protobuf-project.protobuf-aip-linter) from the Marketplace page."
+            echo "You can also [download the extension](https://marketplace.visualstudio.com/items?itemName=the-protobuf-project.aip-linter) from the Marketplace page."
             echo ""
             echo "**From this release**"
             echo ""
             echo "Download the \`.vsix\` asset below and install from the command line:"
             echo "\`\`\`bash"
-            echo "code --install-extension protobuf-aip-linter-${{ steps.get-version.outputs.version }}.vsix"
+            echo "code --install-extension aip-linter-${{ steps.get-version.outputs.version }}.vsix"
             echo "\`\`\`"
           } > release_notes.md
           echo "Release notes generated."
@@ -109,7 +113,7 @@ jobs:
           name: ${{ github.ref_name }}
           body_path: release_notes.md
           files: |
-            protobuf-aip-linter-${{ steps.get-version.outputs.version }}.vsix
+            aip-linter-${{ steps.get-version.outputs.version }}.vsix
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -120,17 +124,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./protobuf-aip-linter-${{ steps.get-version.outputs.version }}.vsix
-          asset_name: protobuf-aip-linter-${{ steps.get-version.outputs.version }}.vsix
+          asset_path: ./aip-linter-${{ steps.get-version.outputs.version }}.vsix
+          asset_name: aip-linter-${{ steps.get-version.outputs.version }}.vsix
           asset_content_type: application/vsix
 
       - name: Publish to VS Code Marketplace
         if: |
           (github.event_name == 'release' && github.event.release.prerelease == false) ||
           github.event_name == 'push'
-        run: bun run publish
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: bunx vsce publish --oidc
 
       - name: Commit version bump
         if: github.event_name != 'push'

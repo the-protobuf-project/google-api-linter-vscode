@@ -1,8 +1,8 @@
 {
-	"name": "protobuf-aip-linter",
+	"name": "aip-linter",
 	"displayName": "Protobuf AIP Linter",
 	"description": "Design Protocol Buffer APIs that follow the Google AIPs — lint, fix findings the linter states, browse the Buf Schema Registry, and document the whole API without leaving the editor.",
-	"version": "2.0.1",
+	"version": "2.0.2",
 	"publisher": "the-protobuf-project",
 	"license": "Apache-2.0",
 	"icon": "picon.png",
@@ -197,11 +197,11 @@
 		},
 		"configurationDefaults": {
 			"[proto3]": {
-				"editor.defaultFormatter": "the-protobuf-project.protobuf-aip-linter",
+				"editor.defaultFormatter": "the-protobuf-project.aip-linter",
 				"editor.semanticHighlighting.enabled": true
 			},
 			"[protobuf]": {
-				"editor.defaultFormatter": "the-protobuf-project.protobuf-aip-linter",
+				"editor.defaultFormatter": "the-protobuf-project.aip-linter",
 				"editor.semanticHighlighting.enabled": true
 			}
 		},
@@ -680,7 +680,7 @@
 		"format:check": "biome format .",
 		"package": "rm -rf node_modules && bun install && bun run compile && vsce package",
 		"package:npm": "rm -rf node_modules && npm install && bun run compile && vsce package",
-		"publish": "vsce publish",
+		"publish": "vsce publish --oidc",
 		"build:local": "bun run package",
 		"test:local": "bun run compile && code --extensionDevelopmentPath=$PWD smoke_test/protobuf",
 		"test:unit": "node esbuild.js && bun test src/test/unit",
@@ -700,7 +700,7 @@
 		"@types/node": "^26.0.0",
 		"@types/vscode": "^1.137.0",
 		"@vscode/test-electron": "^3.0.0",
-		"@vscode/vsce": "^4.0.0",
+		"@vscode/vsce": "^4.1.1",
 		"esbuild": "^0.28.0",
 		"esbuild-svelte": "^0.9.5",
 		"happy-dom": "^20.14.5",

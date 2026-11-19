@@ -6,6 +6,15 @@ All notable changes to this extension are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.0.2]
+
+### Changed
+
+- **Marketplace ID is now `the-protobuf-project.aip-linter`.** The display
+  name is unchanged: search "Protobuf AIP Linter". The previous ID could not be
+  published to, so 2.0.1 never reached the Marketplace; this is that release,
+  published by CI through trusted publishing instead of a stored token.
+
 ## [2.0.1]
 
 ### Fixed
