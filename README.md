@@ -1,5 +1,7 @@
 # Protobuf AIP Linter
 
+[![Visual Studio Marketplace](https://vsmarketplacebadges.dev/version-short/the-protobuf-project.tpp-aip-linter.svg?label=Marketplace&colorB=0078d4)](https://marketplace.visualstudio.com/items?itemName=the-protobuf-project.tpp-aip-linter) [![Installs](https://vsmarketplacebadges.dev/installs-short/the-protobuf-project.tpp-aip-linter.svg)](https://marketplace.visualstudio.com/items?itemName=the-protobuf-project.tpp-aip-linter) [![Rating](https://vsmarketplacebadges.dev/rating-star/the-protobuf-project.tpp-aip-linter.svg)](https://marketplace.visualstudio.com/items?itemName=the-protobuf-project.tpp-aip-linter&ssr=false#review-details) [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE.md)
+
 Design Protocol Buffer APIs that follow the [Google AIPs](https://google.aip.dev),
 without leaving the editor.
 
@@ -8,11 +10,11 @@ against your protos and then does the part a linter cannot: it explains what a
 finding means, shows which symbol it belongs to, and — where the linter states
 the fix — offers to write it.
 
----
-
 ## Start here
 
-Install the extension and open a folder with `.proto` files in it.
+Install from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=the-protobuf-project.tpp-aip-linter), or from the command line with `code --install-extension the-protobuf-project.tpp-aip-linter`.
+
+Then open a folder with `.proto` files in it.
 
 On a machine that is missing something, a prompt offers to set it up:
 **api-linter**, the **googleapis** protos and the **protobuf well-known types**
@@ -23,8 +25,6 @@ Homebrew, apt, dnf, pacman, winget or Scoop chosen for your platform.
 Nothing to try it on? **Protobuf AIP Linter: Create Starter Project** writes a
 working Todo API — a resource, the five standard methods, and buf configuration.
 It lints clean as written, so the first finding you see is one you caused.
-
----
 
 ## What it does
 
@@ -79,8 +79,6 @@ service depends on, the package import graph, and findings by rule. It opens
 with the preview beside it, and it is a file — so it can go in a pull request,
 which is where API review actually happens.
 
----
-
 ## Editing
 
 - **Syntax highlighting** for Protocol Buffers, with semantic highlighting for
@@ -100,8 +98,6 @@ which is where API review actually happens.
 - **Import path completion**, **folding**, **signature help**, **hover
   documentation** on rules and symbols.
 
----
-
 ## The sidebar
 
 | View | Answers |
@@ -110,8 +106,6 @@ which is where API review actually happens.
 | **Problems** | Which rules are firing, and how often |
 | **Dependencies** | What this workspace declares, generates, and imports against |
 | **Registries** | Which schema registries you browse |
-
----
 
 ## Settings
 
@@ -140,8 +134,6 @@ which is where API review actually happens.
 | `gapi.index.maxFiles` | number | `20000` | File ceiling for the index |
 | `gapi.protoView.maxFiles` | number | `5000` | File ceiling for the Structure view |
 | `gapi.debugLintLogging` | boolean | `false` | Log full linter settings on every run |
-
----
 
 ## Configuring the linter
 
@@ -195,8 +187,6 @@ exclude:
 `workspace.protobuf.yaml` marks a directory as a proto workspace and can list
 extra `proto_path` entries. Both files are validated as you edit them.
 
----
-
 ## Continuous integration
 
 **Set Up GitHub Actions CI** writes a workflow using
@@ -213,8 +203,6 @@ which annotates each finding inline on the pull request diff:
 `buf: true` is what makes the imports resolve — without it every annotated
 proto fails to compile rather than to lint.
 
----
-
 ## On large workspaces
 
 The index is built from `node` filesystem reads and never opens a
@@ -223,8 +211,6 @@ extension host to tens of gigabytes on a 9,000-file repository. Above the
 configured ceilings it degrades deliberately rather than growing: doc comments
 and field-level symbols are dropped first, then workspace-wide features switch
 off and per-file ones keep working. It says which limit it hit and why.
-
----
 
 ## Requirements
 
@@ -238,8 +224,6 @@ off and per-file ones keep working. It says which limit it hit and why.
 
 **Check Setup** reports the state of all five, with the install command for your
 platform, and the status bar shows which `api-linter` you are actually running.
-
----
 
 ## Development
 
